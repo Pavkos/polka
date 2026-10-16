@@ -19,15 +19,16 @@ Kindle, только по-русски и без лишнего.
 
 ## Установка
 
-С KPM (менеджер пакетов для Kindle): в поиске на Kindle наберите
+Нужен Kindle с джейлбрейком и KOReader
+([мастер kindlemodding.org](https://kindlemodding.org/jailbreak-wizard.html),
+затем `;kpm install koreader` в поиске на Kindle).
 
-    ;kpm install polka
+1. Скачайте `polka-<версия>.zip` из [релизов](../../releases/latest) и распакуйте.
+2. Подключите Kindle к компьютеру и положите папку `polka.koplugin` в
+   `koreader/plugins/`.
+3. Запустите KOReader — откроется Полка.
 
-Вручную: подключите Kindle к компьютеру, скопируйте папку
-`polka.koplugin` в `koreader/plugins/` и перезапустите KOReader. Полка
-откроется сама.
-
-Проверена на KOReader 2026.07.1.
+Дальше Полка обновляется сама. Проверена на KOReader 2026.07.1.
 
 ## Сайт
 
