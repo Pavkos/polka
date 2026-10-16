@@ -18,6 +18,7 @@ went and a round «sync now» button, and the row itself opens the Сайт page
 
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
+local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
@@ -134,6 +135,27 @@ function Tools.badge(it, size)
     }
 end
 
+-- Reads the quotes (every sidecar in the history) once, a little after
+-- Инструменты is shown, and repaints the row if the count changed.
+local recount_scheduled = false
+function Tools.recountQuotes(shell)
+    if recount_scheduled then return end
+    recount_scheduled = true
+    UIManager:scheduleIn(1.5, function()
+        if not (shell.shown and shell.tab == "tools" and not shell.tools_view and not shell.page) then
+            recount_scheduled = false -- not on the list now: next time it is shown
+            return
+        end
+        local before = G_reader_settings:readSetting("polka_quotes_summary")
+        local ok, Quotes = pcall(require, "polka_quotes")
+        if not ok then return end
+        local okc, now = pcall(Quotes.summary)
+        if okc and now ~= before and shell.shown and shell.tab == "tools" and not shell.tools_view and not shell.page then
+            shell:refresh("ui")
+        end
+    end)
+end
+
 local function row(shell, cw, it)
     local icon_size = UI.px(52)
     local summary
@@ -146,6 +168,10 @@ local function row(shell, cw, it)
     if mod and mod.summary and (not it.site or connected) then
         local ok, s = pcall(mod.summary)
         if ok then summary = s end
+    elseif it.id == "quotes" then
+        -- the count from last time at once; counted again a moment later
+        summary = G_reader_settings:readSetting("polka_quotes_summary")
+        Tools.recountQuotes(shell)
     end
     -- on the right: «Подключить», the round «sync now», or a chevron
     local right

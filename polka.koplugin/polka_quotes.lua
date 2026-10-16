@@ -62,12 +62,20 @@ function Quotes.all()
     return list, books
 end
 
+-- "12 цитат из 3 книг". Kept in the settings too, so that Инструменты can show
+-- it at once after a restart (polka_tools), before the sidecars are read again.
 function Quotes.summary()
     local list, books = Quotes.all()
-    if #list == 0 then return nil end
-    local n = #books
-    local of_books = (n % 10 == 1 and n % 100 ~= 11) and "книги" or "книг" -- "из 1 книги", "из 5 книг"
-    return string.format("%d %s из %d %s", #list, UI.plural(#list, "цитата", "цитаты", "цитат"), n, of_books)
+    local text
+    if #list > 0 then
+        local n = #books
+        local of_books = (n % 10 == 1 and n % 100 ~= 11) and "книги" or "книг" -- "из 1 книги", "из 5 книг"
+        text = string.format("%d %s из %d %s", #list, UI.plural(#list, "цитата", "цитаты", "цитат"), n, of_books)
+    end
+    if G_reader_settings:readSetting("polka_quotes_summary") ~= text then
+        G_reader_settings:saveSetting("polka_quotes_summary", text)
+    end
+    return text
 end
 
 -- The list as filtered now (by book, by words).
