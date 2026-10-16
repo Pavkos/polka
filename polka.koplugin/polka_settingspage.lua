@@ -1,9 +1,11 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 --[[--
 Polka: Настройки.
 
 The handful of KOReader settings people actually change, in plain Russian,
-plus Polka's own options. Everything else is one tap away under
-"Все настройки KOReader".
+plus Polka's own options and its version (a newer one shows here; the row
+opens О Полке, or the update when there is one). Everything else is one tap
+away under «Все настройки».
 ]]
 
 local ButtonDialog = require("ui/widget/buttondialog")
@@ -78,10 +80,10 @@ function SettingsPage.build(shell, W, H)
     local M = shell:margin()
     local cw = W - 2 * M
     local row_h = UI.px(38)
-    -- Rows are laid out in pages: one page in portrait; in landscape the
-    -- rest goes to a second page. A section title stays with its first row.
-    local items = {}
-    local pending_title
+    -- Rows are laid out in pages: one page in portrait (rows a little lower
+    -- when that is all it takes); in landscape the rest goes to a second page.
+    -- A section title stays with its first row.
+    local items, pending_title, nrows
 
     local function section(title, first)
         pending_title = VerticalGroup:new{
@@ -104,6 +106,7 @@ function SettingsPage.build(shell, W, H)
             pending_title = nil
         end
         items[#items + 1] = w
+        nrows = nrows + 1
     end
 
     local function value(text)
@@ -114,135 +117,168 @@ function SettingsPage.build(shell, W, H)
         return UI.text{ text = "›", size = 18, color = UI.C.text2 }
     end
 
-    -- Device
-    section("Устройство", true)
-    if Device:hasFrontlight() then
-        row("Подсветка", nav(), function()
-            if Device.showLightDialog then
-                Device:showLightDialog()
-            else
-                UIManager:broadcastEvent(Event:new("ShowFlDialog"))
-            end
+    local function fill()
+        items, pending_title, nrows = {}, nil, 0
+        -- Device
+        section("Устройство", true)
+        if Device:hasFrontlight() then
+            row("Подсветка", nav(), function()
+                if Device.showLightDialog then
+                    Device:showLightDialog()
+                else
+                    UIManager:broadcastEvent(Event:new("ShowFlDialog"))
+                end
+            end)
+        end
+        local night = G_reader_settings:isTrue("night_mode")
+        row("Ночной режим", UI.switch(night), function()
+            UIManager:broadcastEvent(Event:new("ToggleNightMode"))
+            shell:refresh("full")
         end)
-    end
-    local night = G_reader_settings:isTrue("night_mode")
-    row("Ночной режим", UI.switch(night), function()
-        UIManager:broadcastEvent(Event:new("ToggleNightMode"))
-        shell:refresh("full")
-    end)
-    if Device:hasWifiToggle() then
-        local on = NetworkMgr:isWifiOn()
-        row("Wi‑Fi", UI.switch(on), function()
-            local done = function()
-                if shell.shown then shell:refresh("ui") end
-            end
-            if on then
-                NetworkMgr:toggleWifiOff(done, true)
-            else
-                NetworkMgr:toggleWifiOn(done, false, true)
-            end
-        end)
-    end
-    -- Kindles with Special Offers keep their own sleep screen; KOReader hides
-    -- this option there too.
-    if not Device.supportsScreensaver or Device:supportsScreensaver() then
-        local sleep_opts = {}
-        for _, o in ipairs(SLEEP_SCREENS) do sleep_opts[#sleep_opts + 1] = { value = o.id, label = o.label } end
-        local sleep = G_reader_settings:readSetting("screensaver_type") or "disable"
-        row("Экран сна", value(labelFor(sleep_opts, sleep, "Другое")), function()
-            choose("Экран сна", sleep_opts, sleep, function(v)
-                G_reader_settings:saveSetting("screensaver_type", v)
+        if Device:hasWifiToggle() then
+            local Wifi = require("polka_wifi")
+            local on = NetworkMgr:isWifiOn()
+            local connecting = Wifi.connecting
+            row("Wi‑Fi", UI.switch(on or connecting), function()
+                local done = function()
+                    if shell.shown then shell:refresh("ui") end
+                end
+                if connecting then return end
+                Wifi.toggle(not on, done)
+            end, connecting and "Подключаюсь к знакомой сети…" or nil)
+        end
+        -- Kindles with Special Offers keep their own sleep screen; KOReader hides
+        -- this option there too.
+        if not Device.supportsScreensaver or Device:supportsScreensaver() then
+            local sleep_opts = {}
+            for _, o in ipairs(SLEEP_SCREENS) do sleep_opts[#sleep_opts + 1] = { value = o.id, label = o.label } end
+            local sleep = G_reader_settings:readSetting("screensaver_type") or "disable"
+            row("Экран сна", value(labelFor(sleep_opts, sleep, "Другое")), function()
+                choose("Экран сна", sleep_opts, sleep, function(v)
+                    G_reader_settings:saveSetting("screensaver_type", v)
+                    shell:refresh("ui")
+                end)
+            end)
+        end
+        local refresh_opts = {}
+        for _, o in ipairs(REFRESH) do
+            refresh_opts[#refresh_opts + 1] = { value = o.n, label = o.label, short = o.short }
+        end
+        -- Until a rate is picked, books in Kindle mode flash the Kindle way (polka_reader).
+        local rate = G_reader_settings:readSetting("full_refresh_count")
+        if rate == nil then
+            local Reader = require("polka_reader")
+            rate = Reader.isOn() and Reader.KINDLE_REFRESH or UIManager:getRefreshRate()
+        end
+        row("Обновление экрана", value(labelFor(refresh_opts, rate, "Каждые " .. tostring(rate))), function()
+            choose("Полное обновление экрана (мигание)", refresh_opts, rate, function(v)
+                UIManager:setRefreshRate(v) -- the night-mode rate stays as the user set it
                 shell:refresh("ui")
             end)
         end)
-    end
-    local refresh_opts = {}
-    for _, o in ipairs(REFRESH) do
-        refresh_opts[#refresh_opts + 1] = { value = o.n, label = o.label, short = o.short }
-    end
-    -- Until a rate is picked, books in Kindle mode flash the Kindle way (polka_reader).
-    local rate = G_reader_settings:readSetting("full_refresh_count")
-    if rate == nil then
-        local Reader = require("polka_reader")
-        rate = Reader.isOn() and Reader.KINDLE_REFRESH or UIManager:getRefreshRate()
-    end
-    row("Обновление экрана", value(labelFor(refresh_opts, rate, "Каждые " .. tostring(rate))), function()
-        choose("Полное обновление экрана (мигание)", refresh_opts, rate, function(v)
-            UIManager:setRefreshRate(v) -- the night-mode rate stays as the user set it
-            shell:refresh("ui")
-        end)
-    end)
 
-    -- Reading
-    section("Чтение")
-    local kindle = G_reader_settings:nilOrTrue("polka_reader")
-    row("Как на Kindle", UI.switch(kindle), function()
-        G_reader_settings:saveSetting("polka_reader", not kindle)
-        shell:refresh("ui")
-    end, "Строка «Осталось в главе», тулбар сверху, «Aa»")
-    if kindle then
-        local sel = G_reader_settings:nilOrTrue("polka_selection_menu")
-        row("Меню выделения", UI.switch(sel), function()
-            G_reader_settings:saveSetting("polka_selection_menu", not sel)
+        -- Reading
+        section("Чтение")
+        local kindle = G_reader_settings:nilOrTrue("polka_reader")
+        row("Как на Kindle", UI.switch(kindle), function()
+            G_reader_settings:saveSetting("polka_reader", not kindle)
             shell:refresh("ui")
-        end)
-    end
-
-    -- Polka
-    section("Полка")
-    local autostart = G_reader_settings:nilOrTrue("polka_autostart")
-    row("Открывать при запуске", UI.switch(autostart), function()
-        G_reader_settings:saveSetting("polka_autostart", not autostart)
-        shell:refresh("ui")
-    end)
-    row("Папка с книгами", value(shortPath(Books.root)), function()
-        filemanagerutil.showChooseDialog("Папка с книгами:", function(path)
-            G_reader_settings:saveSetting("polka_root", path)
-            shell.lib.shelf, shell.lib.page = "*", 1
-            Books:scan()
-            shell:refresh("ui")
-        end, G_reader_settings:readSetting("polka_root") or Books.root, Books.root)
-    end)
-    local grid_opts = {}
-    for _, o in ipairs(GRID) do grid_opts[#grid_opts + 1] = { value = o.n, label = o.label } end
-    local grid = tonumber(G_reader_settings:readSetting("polka_grid")) or 9
-    row("Обложек на странице", value(tostring(grid)), function()
-        choose("Обложек на странице", grid_opts, grid, function(v)
-            G_reader_settings:saveSetting("polka_grid", v)
-            shell.lib.page = 1
-            shell:refresh("ui")
-        end)
-    end)
-    local goal = tonumber(G_reader_settings:readSetting("polka_goal")) or 24
-    row("Цель на год", value(UI.books(goal)), function()
-        require("polka_statspage").editGoal(shell)
-    end)
-
-    -- KOReader
-    section("KOReader")
-    row("Все настройки KOReader", nav(), function() shell:openKOReaderMenu() end)
-    row("Файлы и папки", nav(), function() shell:close() end)
-    row("Перезапуск или выход", nav(), function()
-        local dialog
-        local buttons = {}
-        if Device:canRestart() then
-            table.insert(buttons, {{ text = "Перезапустить KOReader", callback = function()
-                UIManager:close(dialog)
-                shell:exitKOReader(true)
-            end }})
+        end, "Строка «Осталось в главе», тулбар сверху, «Aa»")
+        if kindle then
+            local sel = G_reader_settings:nilOrTrue("polka_selection_menu")
+            row("Меню выделения", UI.switch(sel), function()
+                G_reader_settings:saveSetting("polka_selection_menu", not sel)
+                shell:refresh("ui")
+            end)
         end
-        table.insert(buttons, {{ text = Device:isKindle() and "Выйти в меню Kindle" or "Выйти из KOReader", callback = function()
-            UIManager:close(dialog)
-            shell:exitKOReader(false)
-        end }})
-        dialog = ButtonDialog:new{ title = "KOReader", title_align = "center", buttons = buttons }
-        UIManager:show(dialog)
-    end)
 
-    local heights, total = {}, 0
-    for i, w in ipairs(items) do
-        heights[i] = w:getSize().h
-        total = total + heights[i]
+        -- Polka
+        section("Полка")
+        local autostart = G_reader_settings:nilOrTrue("polka_autostart")
+        row("Открывать при запуске", UI.switch(autostart), function()
+            G_reader_settings:saveSetting("polka_autostart", not autostart)
+            shell:refresh("ui")
+        end)
+        row("Папка с книгами", value(shortPath(Books.root)), function()
+            filemanagerutil.showChooseDialog("Папка с книгами:", function(path)
+                G_reader_settings:saveSetting("polka_root", path)
+                shell.lib.shelf, shell.lib.page = "*", 1
+                Books:scan()
+                shell:refresh("ui")
+            end, G_reader_settings:readSetting("polka_root") or Books.root, Books.root)
+        end)
+        local grid_opts = {}
+        for _, o in ipairs(GRID) do grid_opts[#grid_opts + 1] = { value = o.n, label = o.label } end
+        local grid = tonumber(G_reader_settings:readSetting("polka_grid")) or 9
+        row("Обложек на странице", value(tostring(grid)), function()
+            choose("Обложек на странице", grid_opts, grid, function(v)
+                G_reader_settings:saveSetting("polka_grid", v)
+                shell.lib.page = 1
+                shell:refresh("ui")
+            end)
+        end)
+        local goal = tonumber(G_reader_settings:readSetting("polka_goal")) or 24
+        row("Цель на год", value(UI.books(goal)), function()
+            require("polka_statspage").editGoal(shell)
+        end)
+        -- «1.7», or «● 1.7 · есть 1.8» when the site has a newer one
+        local Update = require("polka_update")
+        local newer = Update.available()
+        local version
+        if newer then
+            local d = UI.px(9)
+            version = UI.HorizontalGroup:new{
+                align = "center",
+                UI.canvas(d, d, function(bb, x, y) bb:paintCircle(x + math.floor(d / 2), y + math.floor(d / 2), math.floor(d / 2), UI.C.ink) end),
+                UI.hgap(UI.px(10)),
+                UI.text{ text = string.format("%s · есть %s", Update.short(Update.current()), Update.short(newer.version)),
+                         size = 16, family = "sans_bold" },
+                UI.text{ text = "   ›", size = 16, color = UI.C.text2 },
+            }
+        else
+            version = value(Update.short(Update.current()))
+        end
+        row("Версия", version, function()
+            if Update.available() then
+                Update.showSheet()
+            else
+                shell:openPage("about")
+            end
+        end)
+
+        -- The rest
+        section("Система")
+        row("Все настройки", nav(), function() shell:openKOReaderMenu() end)
+        row("Файлы и папки", nav(), function() shell:close() end)
+        row("Перезапуск или выход", nav(), function()
+            local Sheet = require("polka_sheet")
+            local buttons = {}
+            if Device:canRestart() then
+                table.insert(buttons, { text = "Перезапустить", callback = function() shell:exitKOReader(true) end })
+            end
+            table.insert(buttons, { text = Device:isKindle() and "Выйти в меню Kindle" or "Выйти",
+                                    callback = function() shell:exitKOReader(false) end })
+            Sheet:new{ title = "Перезапуск или выход", buttons = buttons }:show()
+        end)
+    end
+
+    local heights, total
+    local function measure()
+        heights, total = {}, 0
+        for i, w in ipairs(items) do
+            heights[i] = w:getSize().h
+            total = total + heights[i]
+        end
+    end
+    fill()
+    measure()
+    local lowest = UI.px(34)
+    if total > H and total - nrows * (row_h - lowest) <= H then
+        repeat
+            row_h = math.max(lowest, row_h - math.max(1, math.ceil((total - H) / nrows)))
+            fill()
+            measure()
+        until total <= H or row_h <= lowest
     end
     local vg = VerticalGroup:new{ align = "left" }
     if total <= H then
