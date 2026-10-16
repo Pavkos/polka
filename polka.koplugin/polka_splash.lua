@@ -17,7 +17,9 @@ local Screen = Device.screen
 local Icons = require("polka_icons")
 local UI = require("polka_ui")
 
-local Splash = {}
+local Splash = {
+    up = nil, -- the splash while it is on screen: nothing may be drawn over it
+}
 
 -- The launcher's own picture for this screen, if there is one.
 local function picture(W, H)
@@ -65,12 +67,36 @@ function Splash.widget(line)
     }
 end
 
+-- Whatever is up over the page (a message, a toast, a sheet) goes first.
+local function closePopups()
+    local stack = UIManager._window_stack or {}
+    for i = #stack, 1, -1 do
+        local w = stack[i] and stack[i].widget
+        if type(w) == "table" and not w.covers_fullscreen then
+            pcall(UIManager.close, UIManager, w)
+        end
+    end
+end
+
 --- Shows the splash at once (and leaves it there: what comes next replaces it).
+-- While it is up, nothing else is shown over it (polka_quiet holds back late
+-- messages); if no restart follows after all, it goes away by itself.
 function Splash.show(line)
+    pcall(closePopups)
     local w = Splash.widget(line)
+    Splash.up = w
     UIManager:show(w, "full")
     UIManager:forceRePaint()
+    UIManager:scheduleIn(30, function()
+        if Splash.up == w then Splash.hide() end
+    end)
     return w
+end
+
+function Splash.hide()
+    local w = Splash.up
+    Splash.up = nil
+    if w then UIManager:close(w, "full") end
 end
 
 return Splash

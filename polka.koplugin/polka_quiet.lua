@@ -139,9 +139,17 @@ function Quiet.askExit(widget)
     }:show()
 end
 
-local function ownExitConfirm()
+-- Every widget passes UIManager.show: KOReader's exit question becomes Polka's
+-- sheet, and nothing (a late message from a background job, a toast) is drawn
+-- over the splash while Polka restarts.
+local function ownShow()
     local orig_show = UIManager.show
     UIManager.show = function(self, widget, ...)
+        local Splash = package.loaded["polka_splash"]
+        if Splash and Splash.up and widget ~= Splash.up then
+            logger.dbg("Polka quiet: held back over the splash:", widget and (widget.name or widget.text))
+            return
+        end
         if isExitConfirm(widget) then
             local ok = guard("exit sheet", Quiet.askExit, widget)
             if ok then return end
@@ -230,7 +238,7 @@ function Quiet.install(plugin)
         guard("toasts", quietToasts)
         guard("loading bar", quietLoadingBar)
         guard("restart", ownRestart)
-        guard("exit", ownExitConfirm)
+        guard("show", ownShow)
         guard("brand", function()
             local src = Quiet.installBrandPatch(plugin.path)
             if src then brandNow(src) end
