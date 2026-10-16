@@ -138,6 +138,26 @@ function Web.host(url)
     return ((url or Web.server()):gsub("^%a+://", ""):gsub("/.*$", ""))
 end
 
+-- "https://host[:port]" of an address, in lower case, without a default port.
+local function origin(url)
+    if type(url) ~= "string" then return nil end
+    local scheme, authority = url:match("^(%a[%w+.-]*)://([^/?#]+)")
+    if not scheme or authority:find("@", 1, true) then return nil end
+    scheme, authority = scheme:lower(), authority:lower()
+    local host, port = authority:match("^(.-):(%d+)$")
+    host = host or authority
+    if (scheme == "https" and port == "443") or (scheme == "http" and port == "80") then port = nil end
+    if host == "" then return nil end
+    return scheme .. "://" .. host .. (port and (":" .. port) or "")
+end
+
+--- Is url on the site this Kindle talks to (the same scheme, host and port)?
+-- An address from the site's answers is taken only then.
+function Web.sameSite(url)
+    local a = origin(url)
+    return a ~= nil and a == origin(Web.server())
+end
+
 -- The number of the reader's card, once the site told it.
 function Web.card()
     local c = tonumber(saved().card)
@@ -302,8 +322,9 @@ local function arrived(at, got)
     return string.format("%s: +%s%s", when, books(#got), where)
 end
 
--- One line about the sync (under «Сайт», and on the Сайт page).
-function Web.summary()
+-- One line about the sync (under «Сайт», and on the Сайт page; `short`: for
+-- the narrower row in Инструменты).
+function Web.summary(short)
     if not Web.cfg then
         return "Статистика и цитаты в телефоне"
     end
@@ -321,6 +342,13 @@ function Web.summary()
         return online() and "Синхронизирую…" or "Синхронизирую, когда включится Wi‑Fi"
     end
     local got = type(last.downloaded) == "table" and last.downloaded or {}
+    if not last.ok and last.later then
+        -- the site's daily budget: everything waits, the next try comes by itself
+        return "Синхронизирую позже" .. (#got > 0 and (" · +" .. books(#got)) or "")
+    end
+    if not last.ok and last.clock then
+        return short and "Проверьте дату и время на Kindle" or Net.CLOCK
+    end
     if not last.ok then
         local text = "Не получилось " .. clock(last.at) .. ": " .. tostring(last.error or "ошибка")
         if #got > 0 then
@@ -364,9 +392,15 @@ function Web.forget(reason)
     Web.refreshRow()
 end
 
---- A key from pairing: this Kindle now belongs to card `card` at `url`.
+--- A key from pairing: this Kindle now belongs to card `card`. `url` (the
+-- site's own idea of its address) is kept only when it is the very site the
+-- Kindle asked; any other address is ignored.
 function Web.adopt(token, card, url)
-    url = goodUrl(url) and url:gsub("/+$", "") or Web.server()
+    if url ~= nil and not (goodUrl(url) and Web.sameSite(url)) then
+        logger.warn("Polka web: the site named another address, ignored:", tostring(url))
+        url = nil
+    end
+    url = url and url:gsub("/+$", "") or Web.server()
     G_reader_settings:delSetting("polka_web_rejected")
     save({ url = url, token = token, card = tonumber(card) })
     Web.cfg = { url = url, token = token }
@@ -431,6 +465,8 @@ local function finished()
     if Web.again then
         Web.again = false
         Web.request(4, true)
+    elseif last.later then
+        Web.request(0) -- when the site said it would take more (see Web.request)
     end
 end
 
@@ -524,12 +560,19 @@ function Web.start()
     return true
 end
 
--- An automatic sync in `delay` seconds (or later, to keep MIN_GAP). With a
--- book open by then it waits for the book to be closed.
+-- When the site asked to come back (429: its budget for the day is spent).
+local function retryAt()
+    local last = Web.last
+    return type(last) == "table" and last.later and tonumber(last.retry_at) or 0
+end
+
+-- An automatic sync in `delay` seconds (or later, to keep MIN_GAP, and not
+-- before the time the site asked for). With a book open by then it waits
+-- for the book to be closed. `no_gap`: the reader asked for it.
 function Web.request(delay, no_gap)
     if not Web.cfg then return end
     local at = os.time() + (delay or 0)
-    if not no_gap then at = math.max(at, Web.last_try + MIN_GAP) end
+    if not no_gap then at = math.max(at, Web.last_try + MIN_GAP, retryAt()) end
     if scheduled then UIManager:unschedule(scheduled) end
     scheduled = function()
         scheduled = nil
@@ -596,6 +639,10 @@ local function keyed(path, on_done)
         local r = Net.call(req)
         if r.error then return r end
         if r.status == 401 then return { error = "unauthorized" } end
+        if r.status == 403 and type(r.data) == "table" and r.data.error == "too_new" then
+            -- a Kindle added to a card that had a reader already: codes after a day
+            return { error = "too_new", wait = tonumber(r.data.wait) }
+        end
         if r.status ~= 200 or type(r.data) ~= "table" then
             return { error = r.status == 429 and "too_many" or "server", status = r.status }
         end

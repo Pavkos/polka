@@ -166,7 +166,7 @@ local function row(shell, cw, it)
     end
     local connected = it.site and mod and mod.configured and mod.configured()
     if mod and mod.summary and (not it.site or connected) then
-        local ok, s = pcall(mod.summary)
+        local ok, s = pcall(mod.summary, true) -- (true: the short form, for one line here)
         if ok then summary = s end
     elseif it.id == "quotes" then
         -- the count from last time at once; counted again a moment later
