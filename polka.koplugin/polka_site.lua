@@ -112,11 +112,19 @@ local function startPairing(shell)
             pair.handle = nil
             if shell.pair ~= pair then return end
             if res.error or not res.code or not res.poll then
-                pair.state = res.error == "too_many" and "busy" or "error"
+                pair.state = (res.error == "too_many" and "busy") or (res.error == "clock" and "clock") or "error"
             else
                 pair.state = "waiting"
                 pair.code, pair.poll = tostring(res.code), res.poll
-                pair.url, pair.site = res.url, res.site
+                -- addresses from the answer only when they are on this very site
+                pair.site = Web.sameSite(res.site) and res.site or nil
+                if Web.sameSite(res.url) then
+                    pair.url = res.url
+                elseif type(res.link) == "string" and res.link:match("^[%w_%-]+$") then
+                    pair.url = Web.server() .. "/k#" .. res.link
+                else
+                    pair.url = nil -- the code alone (typed on the site)
+                end
                 pair.until_t = os.time() + (tonumber(res.expires) or 900)
                 schedulePoll(shell, pair)
             end
@@ -210,6 +218,7 @@ local STATUS = {
     expired = { "Код устарел", "Нажмите «Новый код»" },
     error = { "Не получилось получить код", "Нет связи с сайтом — попробуйте ещё раз" },
     busy = { "Слишком много кодов подряд", "Попробуйте через несколько минут" },
+    clock = { "Не удалось проверить сайт", "Проверьте дату и время на Kindle" },
 }
 
 local function connectView(shell, W, H)
@@ -252,7 +261,7 @@ local function connectView(shell, W, H)
         }
     end
     local col_w = cw - qr_size - UI.px(28)
-    local host = Web.host(pair.site or Web.server())
+    local host = Web.host(Web.server())
     local steps = VerticalGroup:new{
         align = "left",
         UI.vgap(UI.px(4)),
@@ -308,6 +317,16 @@ end
 
 -- «Сайт» -----------------------------------------------------------------------------
 
+-- "Попробуйте через 23 ч." for the seconds the site asked to wait.
+local function tryIn(wait)
+    wait = tonumber(wait)
+    if not wait or wait <= 0 then return nil end
+    if wait < 3600 then
+        return string.format("Попробуйте через %d мин.", math.max(1, math.ceil(wait / 60)))
+    end
+    return string.format("Попробуйте через %d ч.", math.ceil(wait / 3600))
+end
+
 function Site.loginCode()
     local sheet
     sheet = Sheet:new{
@@ -323,16 +342,30 @@ function Site.loginCode()
                 sheet:close()
                 return
             end
-            if res.error or not res.code then
-                sheet:update{ status = res.error == "too_many" and "Слишком много кодов подряд. Попробуйте позже."
-                                         or "Не получилось: нет связи с сайтом. Попробуйте ещё раз." }
+            if res.error == "too_new" then
+                -- a Kindle added to a card that already had a reader: no code for a day
+                sheet:update{
+                    status = false,
+                    body = "Код можно получить через сутки после подключения.",
+                    small = tryIn(res.wait) or false,
+                }
                 return
             end
+            if res.error or not res.code then
+                local why = "Не получилось: нет связи с сайтом. Попробуйте ещё раз."
+                if res.error == "too_many" then why = "Слишком много кодов подряд. Попробуйте позже." end
+                if res.error == "clock" then why = require("polka_net").CLOCK end
+                sheet:update{ status = why }
+                return
+            end
+            -- on the site the code goes with the number of the card
+            local card = tonumber(res.card) or Web.card()
             local mins = math.max(1, math.floor((tonumber(res.expires) or 600) / 60 + 0.5))
             sheet:update{
                 status = false,
+                lead = card and string.format("Билет № %d", card) or false,
                 big = grouped(res.code),
-                small = string.format("Откройте %s, нажмите «Войти кодом с читалки» и введите этот код. Он действует %d %s.",
+                small = string.format("Откройте %s, нажмите «Войти кодом с читалки», введите номер билета и этот код. Он действует %d %s.",
                     Web.host(), mins, UI.plural(mins, "минуту", "минуты", "минут")),
                 buttons = { { text = "Готово" } },
             }
@@ -361,7 +394,8 @@ function Site.confirmUnlink(shell)
                             return
                         end
                         sheet:update{
-                            status = "Не получилось: нет связи с сайтом. Попробуйте позже.",
+                            status = res.error == "clock" and require("polka_net").CLOCK
+                                     or "Не получилось: нет связи с сайтом. Попробуйте позже.",
                             buttons = { { text = "Закрыть" } },
                         }
                     end)

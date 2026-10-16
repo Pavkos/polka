@@ -11,6 +11,7 @@ the site, the place from another reader, and the like.
   Sheet:new{
       icon = "wifi", title = "Включить Wi‑Fi?", note = "у вас 1.7",
       body = "…", bullets = { "…" }, small = "…", big = "193 752", qr = "https://…",
+      lead = "Билет № 37",            -- a line just above `big`
       status = "Подключаюсь…",       -- replaces the buttons while something runs
       buttons = { { text = "Включить", primary = true, callback = fn }, { text = "Не сейчас", callback = fn } },
       dismissable = true, on_dismiss = fn,   -- a tap above the sheet closes it
@@ -40,6 +41,7 @@ local Sheet = InputContainer:extend{
     body = nil,
     bullets = nil,
     small = nil,
+    lead = nil,
     big = nil,
     qr = nil,
     status = nil,
@@ -170,8 +172,13 @@ function Sheet:build()
         table.insert(line, title)
         add(note and UI.split(cw, line, note) or line)
     end
+    local lead = self.lead and UI.text{ text = self.lead, size = 19, family = "sans_bold" }
     if self.big then
-        add(Sheet.spacedDigits(self.big, 70, UI.px(6)))
+        local digits = Sheet.spacedDigits(self.big, 70, UI.px(6))
+        -- the code sits close under its line
+        add(lead and VerticalGroup:new{ align = "left", lead, UI.vgap(UI.px(6)), digits } or digits)
+    elseif lead then
+        add(lead)
     end
     if self.body then
         add(UI.para{ text = self.body, size = 17, width = cw, line_height = 0.4 })
