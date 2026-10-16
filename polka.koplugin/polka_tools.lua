@@ -10,8 +10,9 @@ under a "‹ Инструменты" line. A tool may define:
   leave(shell)         the tool is closed (stop servers, forget state)
   suspend(shell)       the device goes to sleep while the tool is open
   swipe(shell, dir)    left/right swipes inside the tool
-An item with `action = true` has no screen: a tap runs the module's tap()
-(«Сайт» syncs), and a round button on the right says so.
+«Сайт» is its own kind of row: before the Kindle is connected it says what
+the site is for and has «Подключить»; once connected it shows how the sync
+went and a round «sync now» button, and the row itself opens the Сайт page.
 ]]
 
 local Geom = require("ui/geometry")
@@ -31,11 +32,11 @@ Tools.ITEMS = {
     { id = "transfer", title = "Книги по Wi‑Fi", icon = 0xF1EB, module = "polka_transfer",
       hint = "С телефона или компьютера, без кабеля" },
     { id = "opds", title = "OPDS-каталоги", icon = 0xF02D, module = "polka_opds",
-      hint = "Библиотеки в сети: поиск и скачивание на полку" },
+      hint = "Библиотеки в сети: поиск и скачивание" },
     { id = "instapaper", title = "Instapaper", letter = "I", module = "polka_instapaper",
       hint = "Отложенные статьи — как книги" },
-    { id = "site", title = "Сайт", icon = 0xF0AC, module = "polka_web", action = true,
-      hint = "Статистика и цитаты на сайте, книги с сайта" },
+    { id = "site", title = "Сайт", icon = 0xF0AC, module = "polka_web", site = true,
+      hint = "Статистика и цитаты в телефоне" },
 }
 
 local function item(id)
@@ -46,7 +47,7 @@ end
 
 function Tools.module(id)
     local it = item(id)
-    if not it or it.action then return nil end
+    if not it or it.site then return nil end
     local ok, mod = pcall(require, it.module)
     if not ok then
         logger.err("Polka: cannot load", it.module, mod)
@@ -121,74 +122,73 @@ end
 function Tools.badge(it, size)
     local glyph
     if it.letter then
-        glyph = UI.text{ text = it.letter, family = "serif_bold", size = 24 }
+        glyph = UI.text{ text = it.letter, family = "serif_bold", size = 25 }
     else
-        glyph = UI.icon(it.icon, 20)
+        glyph = UI.icon(it.icon, 22)
     end
     return UI.FrameContainer:new{
         bordersize = 0, padding = 0, margin = 0,
-        background = UI.C.tint, radius = UI.px(10),
+        background = UI.C.tint, radius = UI.px(9),
         UI.center(size, size, glyph),
     }
 end
 
--- The round "sync now" button of an action row (filled while it runs).
-local function roundButton(size, busy)
-    local border = math.max(1, UI.px(1.5))
-    return UI.FrameContainer:new{
-        bordersize = border, color = UI.C.ink, background = busy and UI.C.ink or UI.C.paper,
-        radius = math.floor(size / 2), padding = 0, margin = 0,
-        UI.center(size - 2 * border, size - 2 * border, UI.icon(0xF021, 18, busy and UI.C.paper or UI.C.ink)),
-    }
-end
-
 local function row(shell, cw, it)
-    local icon_size = UI.px(46)
+    local icon_size = UI.px(52)
     local summary
     local mod = package.loaded[it.module]
-    if not mod and it.action then
+    if not mod and it.site then
         local ok, m = pcall(require, it.module)
         mod = ok and m or nil
     end
-    if mod and mod.summary then
+    local connected = it.site and mod and mod.configured and mod.configured()
+    if mod and mod.summary and (not it.site or connected) then
         local ok, s = pcall(mod.summary)
         if ok then summary = s end
     end
-    local right_w = it.action and UI.px(44) or UI.px(30)
-    local text_w = cw - icon_size - UI.px(16) - right_w - (it.action and UI.px(12) or 0)
+    -- on the right: «Подключить», the round «sync now», or a chevron
+    local right
+    if it.site and not connected then
+        right = UI.pillButton("Подключить", function() require("polka_site").open(shell) end)
+    elseif it.site then
+        local Site = require("polka_site")
+        right = UI.tap(Site.syncButton(UI.px(46), mod.pid ~= nil), function()
+            if mod.online() then
+                mod.tap()
+            else
+                require("polka_wifi").run("Нужен, чтобы синхронизировать.", function() mod.tap() end)
+            end
+        end)
+    else
+        right = require("polka_icons").widget("chev_right", UI.px(22), { stroke = math.max(2, UI.px(2)) })
+    end
+    local right_w = right:getSize().w
+    local text_w = cw - icon_size - UI.px(16) - right_w - UI.px(12)
     local texts = VerticalGroup:new{
         align = "left",
-        UI.text{ text = it.title, family = "serif_bold", size = 20, max_width = text_w },
-        UI.vgap(UI.px(2)),
-        UI.text{ text = summary or it.hint, size = 14, color = UI.C.text2, max_width = text_w },
+        UI.text{ text = it.title, family = "serif_bold", size = 22, max_width = text_w },
+        UI.vgap(UI.px(3)),
+        UI.text{ text = summary or it.hint, size = 14.5, color = UI.C.text2, max_width = text_w },
     }
-    local h = math.max(icon_size, texts:getSize().h) + UI.px(28)
-    local right
-    if it.action then
-        right = roundButton(right_w, mod and mod.pid ~= nil)
-    else
-        right = UI.center(right_w, nil, UI.text{ text = "›", size = 22, color = UI.C.text2 })
-    end
-    local line = HorizontalGroup:new{
+    local h = math.max(icon_size, texts:getSize().h, right:getSize().h) + UI.px(32)
+    local left = HorizontalGroup:new{
         align = "center",
         Tools.badge(it, icon_size),
         UI.hgap(UI.px(16)),
         UI.left(text_w, texts),
     }
-    if it.action then table.insert(line, UI.hgap(UI.px(12))) end
-    table.insert(line, right)
     local w = UI.tap(VerticalGroup:new{
         align = "left",
-        UI.center(cw, h, UI.left(cw, line)),
+        UI.split(cw, left, right, h),
         UI.hline(cw),
     }, function()
-        if it.action then
-            if mod and mod.tap then mod.tap(shell) end
+        if it.site then
+            require("polka_site").open(shell)
         else
             shell:openTool(it.id)
         end
     end)
-    if it.action then Tools[it.id .. "_row"] = w end
+    if it.site then Tools[it.id .. "_row"] = w end
     return w
 end
 

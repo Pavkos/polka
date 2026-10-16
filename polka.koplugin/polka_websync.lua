@@ -1,18 +1,22 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 --[[--
 Polka: the sync with the site — the part that runs in a separate process.
 
 Polka (polka_web) forks KOReader for this, so nothing here may touch the
 screen or KOReader's files: it reads the statistics database, the books
-folder and the books' sidecars, talks to the site, saves books the site has
-for the Kindle, and writes what it did to its own file
-(settings/polka_web.lua), which nothing else writes. While it runs, one line
-of progress sits in settings/polka_web_progress.txt and the process id in
-settings/polka_web.lock.
+folder, the books' sidecars and the places file (polka_places), talks to the
+site, saves books the site has for the Kindle, and writes what it did to its
+own file (settings/polka_web.lua), which nothing else writes. While it runs,
+one line of progress sits in settings/polka_web_progress.txt and the process
+id in settings/polka_web.lock.
 
 The order of a sync:
-  1. a short hello (device, reader's card) — the site answers with what it
-     has: the fingerprint of its book list, its newest session, the books
-     uploaded for the Kindle;
+  1. a short hello (device, reader's card, where this Kindle stopped in the
+     books read since the last sync) — the site answers with what it has:
+     the number of the card, the fingerprint of its book list, its newest
+     session, the books uploaded for the Kindle, and the places the card's
+     other readers reached since the last time (a 401 here means the key
+     was taken back on the site: polka_web forgets it);
   2. what changed since the last time, in posts of a few hundred KB:
        stat_books  the books the new sessions belong to
        progress    status, percent, date finished of the books in the history
@@ -727,10 +731,47 @@ local function collect(state, root, full)
     }
 end
 
+-- Places in books reached here since the last sync (polka_places keeps them;
+-- this process only reads its file).
+local function pendingPlaces(path)
+    local out, sent = {}, {}
+    if not path or lfs.attributes(path, "mode") ~= "file" then return out, sent end
+    local ok, err = pcall(function()
+        local s = LuaSettings:open(path)
+        local mine = s:readSetting("mine") or {}
+        for id in pairs(s:readSetting("pending") or {}) do
+            local p = mine[id]
+            if type(p) == "table" and tonumber(p.t) then
+                out[#out + 1] = { id = id, t = math.floor(p.t), percent = tonumber(p.percent),
+                                  spine = tonumber(p.spine), frac = tonumber(p.frac), xp = str(p.xp) }
+                sent[id] = math.floor(p.t)
+            end
+        end
+    end)
+    if not ok then logger.warn("Polka web: places:", err) end
+    return out, sent
+end
+
+-- Places from the card's other readers, as much as is worth keeping.
+local function remotePlaces(list)
+    local out = {}
+    for _, p in ipairs(type(list) == "table" and list or {}) do
+        if type(p) == "table" and type(p.id) == "string" and tonumber(p.t) then
+            out[#out + 1] = {
+                id = p.id, device = str(p.device), kind = str(p.kind), t = tonumber(p.t),
+                percent = tonumber(p.percent), spine = tonumber(p.spine), frac = tonumber(p.frac),
+                xp = str(p.xp), cp = str(p.cp),
+            }
+        end
+        if #out >= 50 then break end
+    end
+    return out
+end
+
 function Sync.run(cfg)
     local started = os.time()
     local state = LuaSettings:open(Sync.STATE)
-    local result = { at = started, ok = false }
+    local result = { at = started, ok = false, token_hash = sha1(cfg.token) }
     local function finish()
         result.took = os.time() - started
         state:saveSetting("last", result)
@@ -742,8 +783,10 @@ function Sync.run(cfg)
     local Books = require("polka_books")
     local root = Books.getRoot():gsub("/+$", "")
 
-    -- 1. Hello: what the site has.
-    local hello, err = postJSON(cfg, "/api/device/sync", {
+    -- 1. Hello: what the site has; where this Kindle stopped in its books and
+    --    where the card's other readers did.
+    local places, places_sent = pendingPlaces(cfg.places)
+    local hello, err, code = postJSON(cfg, "/api/device/sync", {
         v = 1,
         device = {
             model = require("device").model, koreader = require("version"):getCurrentRevision(),
@@ -751,12 +794,23 @@ function Sync.run(cfg)
         },
         settings = Sync.card(),
         no_cover = list(state:readSetting("no_cover") or {}),
+        positions_since = tonumber(state:readSetting("positions_since")) or 0,
+        positions = #places > 0 and list(places) or nil,
     })
     if not hello then
         result.error = err
+        result.unauthorized = code == 401 or nil
         return finish()
     end
     state:saveSetting("no_cover", {})
+    result.card = tonumber(hello.card)
+    if tonumber(hello.time) then
+        state:saveSetting("positions_since", math.floor(hello.time))
+        result.positions = remotePlaces(hello.positions)
+        result.positions_time = math.floor(hello.time)
+        result.positions_sent = places_sent
+    end
+    state:flush()
     local latest = hello
 
     -- 2. What changed — or everything, if the site lost what it had (a new
@@ -779,9 +833,16 @@ function Sync.run(cfg)
         local what = ctx.quotes > 0 and string.format("Отправляю %d %s", ctx.quotes, plural(ctx.quotes, "цитату", "цитаты", "цитат"))
                      or "Отправляю статистику"
         progress(#list_posts > 1 and string.format("%s… %d из %d", what, k, #list_posts) or what .. "…")
-        local resp
-        resp, data_err = postJSON(cfg, "/api/device/sync", payload)
-        if not resp then break end
+        local resp, data_code
+        resp, data_err, data_code = postJSON(cfg, "/api/device/sync", payload)
+        if not resp then
+            if data_code == 401 then
+                result.unauthorized = true
+                result.error = data_err
+                return finish()
+            end
+            break
+        end
         latest = resp
     end
     if not data_err then
