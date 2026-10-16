@@ -45,6 +45,7 @@ local SESSION_GAP = 600        -- a pause longer than this starts a new session
 local OPEN_WINDOW = 6 * 3600   -- sessions that ended this recently may still grow
 local POST_BYTES = 250000      -- about this much per post (a free Worker has ~10 ms of CPU)
 local LIST_PER_POST = 250      -- books of the library list per post
+local ITEMS_PER_POST = 1000    -- rows of one kind per post (the site keeps the first 2000 of a list)
 local MAX_COVERS = 150         -- covers sent in one sync…
 local COVER_SECONDS = 150      -- …and the time they may take
 local COVER_BATCH = 50         -- the site asks for at most this many at a time
@@ -109,47 +110,37 @@ end
 
 -- HTTP --------------------------------------------------------------------------
 
+-- One request to the site (https checked by polka_net): the HTTP code and
+-- the body, or nil and what went wrong.
 local function request(cfg, method, path, body, ctype, sink, timeouts)
-    local http = require("socket.http")
-    local ltn12 = require("ltn12")
-    local socket = require("socket")
-    local socketutil = require("socketutil")
-    local chunks = {}
-    local headers = {
-        ["Authorization"] = "Bearer " .. cfg.token,
-        ["Accept-Encoding"] = "identity",
-        ["User-Agent"] = "Polka/" .. (cfg.version or "1") .. " (KOReader)",
+    local code, resp, err = require("polka_net").request{
+        url = cfg.url .. path,
+        method = method,
+        token = cfg.token,
+        body = body,
+        ctype = body and (ctype or "application/json") or nil,
+        sink = sink,
+        timeouts = timeouts or { 15, 120 },
     }
-    if body then
-        headers["Content-Type"] = ctype or "application/json"
-        headers["Content-Length"] = tostring(#body)
-    end
-    socketutil:set_timeout(timeouts and timeouts[1] or 15, timeouts and timeouts[2] or 120)
-    local ok, code = pcall(function()
-        return socket.skip(1, http.request{
-            url = cfg.url .. path,
-            method = method,
-            headers = headers,
-            source = body and ltn12.source.string(body) or nil,
-            sink = sink or socketutil.table_sink(chunks),
-        })
-    end)
-    socketutil:reset_timeout()
-    if not ok then return nil, tostring(code) end
-    return code, table.concat(chunks)
+    if not code then return nil, err end
+    return code, resp or ""
 end
 
 local function netError(code, err)
     if code == 401 or code == 403 then return "сайт не принял ключ Kindle" end
     if code == 413 then return "слишком много данных за раз" end
+    if code == 429 then return "синхронизирую позже" end
     if type(code) == "number" then return string.format("сайт ответил ошибкой %d", code) end
-    local e = tostring(code or err or "")
-    if e:find("timeout") then return "сайт не ответил вовремя" end
+    local kind = require("polka_net").errorKind(code or err)
+    if kind == "clock" then return "не удалось проверить сайт — проверьте дату и время на Kindle" end
+    if kind == "timeout" then return "сайт не ответил вовремя" end
     return "нет связи с сайтом"
 end
 
 -- A post the site answered with {"ok": true, …}; anything else (an error, a
--- Wi‑Fi login page answering for the site) is a failure.
+-- Wi‑Fi login page answering for the site) is a failure. On a failure also
+-- the HTTP code and { wait = seconds } (429: the site's daily budget is
+-- spent) or { clock = true } (the site's certificate is outside its dates).
 local function postJSON(cfg, path, payload)
     local ok_enc, body = pcall(encode, payload)
     if not ok_enc then
@@ -157,12 +148,34 @@ local function postJSON(cfg, path, payload)
         return nil, "не удалось собрать данные"
     end
     local code, resp = request(cfg, "POST", path, body)
-    if code ~= 200 then return nil, netError(code, resp), code end
+    if code ~= 200 then
+        local extra = {}
+        if code == 429 then
+            local t = decode(resp)
+            extra.wait = type(t) == "table" and tonumber(t.wait) or 3600
+        elseif not code and require("polka_net").errorKind(resp) == "clock" then
+            extra.clock = true
+        end
+        return nil, netError(code, resp), code, extra
+    end
     local t = decode(resp)
     if type(t) ~= "table" or t.ok ~= true then
-        return nil, "отвечает не сайт (нужен вход в сеть Wi‑Fi?)", code
+        return nil, "отвечает не сайт (нужен вход в сеть Wi‑Fi?)", code, {}
     end
     return t
+end
+
+-- What a failed post leaves for polka_web: try again after the site's wait
+-- (quietly, «Синхронизирую позже»), or the clock to check.
+local function noteFailure(result, code, extra)
+    extra = extra or {}
+    if code == 429 then
+        local wait = math.max(60, math.min(tonumber(extra.wait) or 3600, 2 * 86400))
+        result.later = true
+        result.retry_at = os.time() + wait
+    elseif extra.clock then
+        result.clock = true
+    end
 end
 
 -- The books folder ----------------------------------------------------------------
@@ -665,7 +678,8 @@ local function posts(ctx)
     local out = {}
     local cur, size
     local function add(field, item, bytes)
-        if not cur or (size + bytes > POST_BYTES and size > 0) then
+        if not cur or (size + bytes > POST_BYTES and size > 0)
+           or (cur[field] and #cur[field] >= ITEMS_PER_POST) then
             cur, size = { v = 1 }, 0
             out[#out + 1] = cur
         end
@@ -741,7 +755,8 @@ local function pendingPlaces(path)
         local mine = s:readSetting("mine") or {}
         for id in pairs(s:readSetting("pending") or {}) do
             local p = mine[id]
-            if type(p) == "table" and tonumber(p.t) then
+            if type(p) == "table" and tonumber(p.t) and #out < ITEMS_PER_POST then
+                -- (the rest, if ever, stay pending for the next sync)
                 out[#out + 1] = { id = id, t = math.floor(p.t), percent = tonumber(p.percent),
                                   spine = tonumber(p.spine), frac = tonumber(p.frac), xp = str(p.xp) }
                 sent[id] = math.floor(p.t)
@@ -786,7 +801,7 @@ function Sync.run(cfg)
     -- 1. Hello: what the site has; where this Kindle stopped in its books and
     --    where the card's other readers did.
     local places, places_sent = pendingPlaces(cfg.places)
-    local hello, err, code = postJSON(cfg, "/api/device/sync", {
+    local hello, err, code, extra = postJSON(cfg, "/api/device/sync", {
         v = 1,
         device = {
             model = require("device").model, koreader = require("version"):getCurrentRevision(),
@@ -798,8 +813,10 @@ function Sync.run(cfg)
         positions = #places > 0 and list(places) or nil,
     })
     if not hello then
+        -- nothing is lost: the places, the covers and the data wait for the next sync
         result.error = err
         result.unauthorized = code == 401 or nil
+        noteFailure(result, code, extra)
         return finish()
     end
     state:saveSetting("no_cover", {})
@@ -828,33 +845,57 @@ function Sync.run(cfg)
     else
         done_text = "Отправил статистику"
     end
-    local data_err
-    for k, payload in ipairs(list_posts) do
-        local what = ctx.quotes > 0 and string.format("Отправляю %d %s", ctx.quotes, plural(ctx.quotes, "цитату", "цитаты", "цитат"))
-                     or "Отправляю статистику"
-        progress(#list_posts > 1 and string.format("%s… %d из %d", what, k, #list_posts) or what .. "…")
-        local resp, data_code
-        resp, data_err, data_code = postJSON(cfg, "/api/device/sync", payload)
-        if not resp then
-            if data_code == 401 then
-                result.unauthorized = true
-                result.error = data_err
-                return finish()
-            end
-            break
-        end
-        latest = resp
-    end
-    if not data_err then
-        -- Everything above is on the site now.
+    -- The statistics are kept as sent once all their posts went through; the
+    -- parts of the book list one by one, so that a list bigger than the site
+    -- takes in a day (429) goes on from where it stopped, not from the start.
+    local stats_kept = false
+    local function keepStats()
+        if stats_kept then return end
+        stats_kept = true
         state:saveSetting("stats_from", ctx.next_from)
         state:saveSetting("sent_max", math.max(sent_max, ctx.newest))
         state:saveSetting("hl", ctx.hl_now)
         state:saveSetting("prog", ctx.marks)
+        state:flush()
+    end
+    local list_done = state:readSetting("list_done")
+    if full or type(list_done) ~= "table" or list_done.hash ~= ctx.lib_hash then list_done = nil end
+    local data_err
+    for k, payload in ipairs(list_posts) do
+        local part = payload.books and payload.books.part
+        if part then keepStats() end
+        if part and list_done and list_done.parts == payload.books.parts and part <= (tonumber(list_done.done) or 0) then
+            logger.dbg("Polka web: part", part, "of the book list went last time")
+        else
+            local what = ctx.quotes > 0 and string.format("Отправляю %d %s", ctx.quotes, plural(ctx.quotes, "цитату", "цитаты", "цитат"))
+                         or "Отправляю статистику"
+            progress(#list_posts > 1 and string.format("%s… %d из %d", what, k, #list_posts) or what .. "…")
+            local resp, data_code, data_extra
+            resp, data_err, data_code, data_extra = postJSON(cfg, "/api/device/sync", payload)
+            if not resp then
+                if data_code == 401 then
+                    result.unauthorized = true
+                    result.error = data_err
+                    return finish()
+                end
+                noteFailure(result, data_code, data_extra)
+                break
+            end
+            latest = resp
+            if part then
+                state:saveSetting("list_done", { hash = ctx.lib_hash, parts = payload.books.parts, done = part })
+                state:flush()
+            end
+        end
+    end
+    if not data_err then
+        -- Everything above is on the site now.
+        keepStats()
         state:saveSetting("books_hash", ctx.lib_hash)
+        state:delSetting("list_done")
         result.sent = { sessions = #ctx.sessions, highlights = ctx.quotes, books = ctx.send_list and #ctx.lib or 0 }
     else
-        done_text = "Не всё отправил"
+        done_text = result.later and "Синхронизирую позже" or "Не всё отправил"
     end
     state:saveSetting("md5", ctx.md5_cache)
     state:flush()
