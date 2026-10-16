@@ -122,8 +122,12 @@ function About.buildPage(shell, id, W, H)
     local note = UI.para{ text = "Полка — независимый проект. Не связана с Amazon и командой KOReader.",
                           size = 13.5, color = UI.C.text2, width = cw, align = "center" }
     local spare = H - used - note:getSize().h - UI.px(28)
-    if spare > 0 then add(UI.vgap(spare)) end
-    add(UI.pad(note, { left = M, right = M }))
+    if spare >= 0 then
+        add(UI.vgap(spare))
+        add(UI.pad(note, { left = M, right = M }))
+    else
+        note:free() -- no room (turned on its side): the rows matter more
+    end
     return vg
 end
 

@@ -218,30 +218,10 @@ local function stat(value, caption, w)
     })
 end
 
-function End:build()
-    if self[1] then
-        self[1]:free()
-        self[1] = nil
-    end
-    local W, H = self.dimen.w, self.dimen.h
+-- The stamp, the book and its numbers, centred in width cw (stamp area W wide).
+function End:topBlock(W, cw)
     local vg = VerticalGroup:new{ align = "center" }
-    local used = 0
-    local function add(w)
-        table.insert(vg, w)
-        used = used + w:getSize().h
-    end
-    add(UI.pad(UI.statusRow(W - 2 * UI.px(18)), { left = UI.px(18), right = UI.px(18), top = UI.px(4) }))
-    -- ‹ В книгу
-    local back = UI.tap(UI.pad(HorizontalGroup:new{
-        align = "center",
-        Icons.widget("chev_left", UI.px(22), { stroke = math.max(2, UI.px(2)) }),
-        UI.hgap(UI.px(4)),
-        UI.text{ text = "В книгу", size = 16 },
-    }, { left = UI.px(14), right = UI.px(24), top = UI.px(8), bottom = UI.px(8) }), function() self:close() end)
-    add(UI.left(W, back))
-
-    local cw = W - 2 * UI.px(40)
-    add(UI.vgap(UI.px(26 + 6)))
+    local function add(w) table.insert(vg, w) end
     -- the stamp, tilted a little to the left; the page keeps its place when it is taken off
     local date = os.date("%d.%m.%Y")
     local summary = self.ui.doc_settings:readSetting("summary") or {}
@@ -290,10 +270,11 @@ function End:build()
         UI.text{ text = quiet, size = 14.5, color = UI.C.text2 },
         underlined,
     }, function() self:toggleStamp() end))
+    return vg
+end
 
-    -- what to read next, and the shelves
-    local M = UI.px(32)
-    local bw = W - 2 * M
+-- What to read next, and the shelves, bw wide.
+function End:bottomBlock(bw)
     local bottom = VerticalGroup:new{ align = "left" }
     if self.next then
         table.insert(bottom, UI.text{ text = nextHeading(self.next.path), size = 14, family = "sans_bold", max_width = bw })
@@ -337,11 +318,55 @@ function End:build()
         table.insert(bottom, UI.vgap(UI.px(14)))
     end
     table.insert(bottom, button("В библиотеку", false, bw, UI.px(50), function() self:toLibrary() end))
-    table.insert(bottom, UI.vgap(UI.px(30)))
-    local spare = H - used - bottom:getSize().h
-    if spare > 0 then add(UI.vgap(spare)) end
-    add(UI.pad(bottom, { left = M, right = M }))
+    return bottom
+end
 
+function End:build()
+    if self[1] then
+        self[1]:free()
+        self[1] = nil
+    end
+    local W, H = self.dimen.w, self.dimen.h
+    local head = VerticalGroup:new{ align = "left" }
+    table.insert(head, UI.pad(UI.statusRow(W - 2 * UI.px(18)), { left = UI.px(18), right = UI.px(18), top = UI.px(4) }))
+    -- ‹ В книгу
+    local back = UI.tap(UI.pad(HorizontalGroup:new{
+        align = "center",
+        Icons.widget("chev_left", UI.px(22), { stroke = math.max(2, UI.px(2)) }),
+        UI.hgap(UI.px(4)),
+        UI.text{ text = "В книгу", size = 16 },
+    }, { left = UI.px(14), right = UI.px(24), top = UI.px(8), bottom = UI.px(8) }), function() self:close() end)
+    table.insert(head, UI.left(W, back))
+    local head_h = head:getSize().h
+    local M = UI.px(32)
+    local top_gap, bottom_pad = UI.px(26 + 6), UI.px(30)
+
+    local top = self:topBlock(W, W - 2 * UI.px(40))
+    local bottom = self:bottomBlock(W - 2 * M)
+    local stacked = head_h + top_gap + top:getSize().h + UI.px(16) + bottom:getSize().h + bottom_pad
+    local vg = VerticalGroup:new{ align = "center", head }
+    if stacked <= H then
+        -- as in the mockup: the book at the top, what is next at the bottom
+        table.insert(vg, UI.vgap(top_gap))
+        table.insert(vg, top)
+        table.insert(vg, UI.vgap(H - stacked + UI.px(16)))
+        table.insert(vg, UI.pad(bottom, { left = M, right = M }))
+    else
+        -- too low a screen (turned on its side): the book on the left, what is next on the right
+        top:free()
+        bottom:free()
+        local lw = math.floor(W * 0.56)
+        local rw = W - lw
+        top = self:topBlock(lw, lw - 2 * UI.px(32))
+        bottom = self:bottomBlock(rw - 2 * M)
+        local room = H - head_h
+        local th, bh = top:getSize().h, bottom:getSize().h
+        table.insert(vg, HorizontalGroup:new{
+            align = "top",
+            UI.pad(top, { top = math.max(UI.px(12), math.floor((room - th) / 2)) }),
+            UI.pad(bottom, { left = M, right = M, top = math.max(0, math.floor((room - bh) / 2)) }),
+        })
+    end
     self[1] = UI.FrameContainer:new{
         bordersize = 0, padding = 0, margin = 0, background = UI.C.paper, width = W, height = H,
         vg,

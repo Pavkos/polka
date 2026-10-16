@@ -112,7 +112,7 @@ local function startPairing(shell)
             pair.handle = nil
             if shell.pair ~= pair then return end
             if res.error or not res.code or not res.poll then
-                pair.state = "error"
+                pair.state = res.error == "too_many" and "busy" or "error"
             else
                 pair.state = "waiting"
                 pair.code, pair.poll = tostring(res.code), res.poll
@@ -209,6 +209,7 @@ local STATUS = {
     waiting = { "Жду телефон…", "Код действует 15 минут" },
     expired = { "Код устарел", "Нажмите «Новый код»" },
     error = { "Не получилось получить код", "Нет связи с сайтом — попробуйте ещё раз" },
+    busy = { "Слишком много кодов подряд", "Попробуйте через несколько минут" },
 }
 
 local function connectView(shell, W, H)
@@ -323,7 +324,8 @@ function Site.loginCode()
                 return
             end
             if res.error or not res.code then
-                sheet:update{ status = "Не получилось: нет связи с сайтом. Попробуйте ещё раз." }
+                sheet:update{ status = res.error == "too_many" and "Слишком много кодов подряд. Попробуйте позже."
+                                         or "Не получилось: нет связи с сайтом. Попробуйте ещё раз." }
                 return
             end
             local mins = math.max(1, math.floor((tonumber(res.expires) or 600) / 60 + 0.5))
