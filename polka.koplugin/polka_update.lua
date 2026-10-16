@@ -113,7 +113,7 @@ function Update.check(on_done)
         s.checked = os.time()
         local release, err
         if res.error then
-            err = "нет связи с сайтом"
+            err = res.error == "clock" and Net.CLOCK or "нет связи с сайтом"
         elseif res.status == 200 and goodRelease(res.data) then
             local d = res.data
             local notes = {}
@@ -208,9 +208,10 @@ local function prepare(release, work)
         end
         return 1
     end
-    local code = Net.request{ url = release.url, method = "GET", sink = sink, timeouts = { 20, 300 } }
+    local code, _, net_err = Net.request{ url = release.url, method = "GET", sink = sink, timeouts = { 20, 300 } }
     f:close()
     if write_err then return { error = "не хватает места на Kindle" } end
+    if not code and Net.errorKind(net_err) == "clock" then return { error = "clock" } end
     if code ~= 200 then return { error = "не удалось скачать" } end
     if release.size and size ~= release.size then return { error = "файл скачался не целиком" } end
     if hasher() ~= release.sha256 then return { error = "файл повреждён" } end
@@ -367,6 +368,8 @@ function Update.checkNow(on_change)
             if release then
                 Update.hint = nil
                 Update.showSheet(release)
+            elseif err == Net.CLOCK then
+                Update.hint = err
             elseif err then
                 Update.hint = "Не получилось проверить: " .. err
             else

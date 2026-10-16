@@ -118,7 +118,9 @@ local function apiError(code, body)
     if code == 401 or code == 403 then return "Instapaper не принял ключ, секрет или пароль." end
     if type(code) ~= "number" then
         logger.warn("Polka: Instapaper: network error:", code)
-        if tostring(code or ""):find("timeout", 1, true) then return "Instapaper не отвечает. Попробуйте ещё раз." end
+        local kind = require("polka_net").errorKind(code)
+        if kind == "clock" then return "Не удалось проверить Instapaper. Проверьте дату и время на Kindle." end
+        if kind == "timeout" then return "Instapaper не отвечает. Попробуйте ещё раз." end
         return "Нет связи с Instapaper. Проверьте Wi‑Fi."
     end
     return string.format("Instapaper ответил ошибкой %d.", code)
@@ -131,29 +133,18 @@ local function call(path, params, acc)
     local fields = {}
     for k, v in pairs(params) do fields[#fields + 1] = pct(k) .. "=" .. pct(v) end
     local body = table.concat(fields, "&")
-    local http = require("socket.http")
-    local ltn12 = require("ltn12")
-    local socket = require("socket")
     local socketutil = require("socketutil")
-    local chunks = {}
-    socketutil:set_timeout(socketutil.LARGE_BLOCK_TIMEOUT, socketutil.LARGE_TOTAL_TIMEOUT)
-    local ok, code = pcall(function()
-        return socket.skip(1, http.request{
-            url = url,
-            method = "POST",
-            headers = {
-                ["Authorization"] = auth,
-                ["Content-Type"] = "application/x-www-form-urlencoded",
-                ["Content-Length"] = tostring(#body),
-                ["Accept-Encoding"] = "identity",
-            },
-            source = ltn12.source.string(body),
-            sink = socketutil.table_sink(chunks),
-        })
-    end)
-    socketutil:reset_timeout()
-    if not ok then return tostring(code), "" end
-    return code, table.concat(chunks)
+    -- https checked like the site's: the login and the keys go only to Instapaper
+    local code, resp, err = require("polka_net").request{
+        url = url,
+        method = "POST",
+        body = body,
+        ctype = "application/x-www-form-urlencoded",
+        headers = { ["Authorization"] = auth },
+        timeouts = { socketutil.LARGE_BLOCK_TIMEOUT, socketutil.LARGE_TOTAL_TIMEOUT },
+    }
+    if not code then return tostring(err), "" end
+    return code, resp or ""
 end
 
 local function urldecode(s)
