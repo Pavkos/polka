@@ -307,7 +307,15 @@ function Update.install(sheet, release)
         sheet:update{ buttons = false, status = "Скачиваю…" }
         local work = workDir()
         Net.async(function() return prepare(release, work) end, function(res)
-            if not res.ok then return fail(res.error or "что-то пошло не так") end
+            if not res.ok then
+                -- prepare() says it in Russian; a crash, a timeout or a lost process does not
+                local why = res.error
+                if type(why) ~= "string" or not why:find("[\208\209]") then
+                    logger.warn("Polka update: background:", why, res.detail)
+                    why = require("polka_net").why(why)
+                end
+                return fail(why)
+            end
             sheet:update{ status = "Ставлю…" }
             UIManager:nextTick(function()
                 local ok, why = swap(res.dir, release)

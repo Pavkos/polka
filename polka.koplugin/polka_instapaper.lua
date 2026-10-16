@@ -106,13 +106,21 @@ local function errorCode(body)
     return type(e) == "table" and tonumber(e.error_code) or nil, e
 end
 
+-- In Russian; Instapaper's and the socket's own (English) words go to the log only.
 local function apiError(code, body)
     local ecode, e = errorCode(body)
     if ecode then
-        return ERRORS[ecode] or tostring(type(e) == "table" and e.message or "Ошибка Instapaper")
+        if not ERRORS[ecode] then
+            logger.warn("Polka: Instapaper error", ecode, type(e) == "table" and e.message or "")
+        end
+        return ERRORS[ecode] or string.format("Instapaper ответил ошибкой %d.", ecode)
     end
     if code == 401 or code == 403 then return "Instapaper не принял ключ, секрет или пароль." end
-    if type(code) ~= "number" then return "Нет связи с Instapaper." end
+    if type(code) ~= "number" then
+        logger.warn("Polka: Instapaper: network error:", code)
+        if tostring(code or ""):find("timeout", 1, true) then return "Instapaper не отвечает. Попробуйте ещё раз." end
+        return "Нет связи с Instapaper. Проверьте Wi‑Fi."
+    end
     return string.format("Instapaper ответил ошибкой %d.", code)
 end
 
@@ -635,7 +643,7 @@ local function phoneView(shell, W, H)
     end
     local ok, err = Transfer.start(shell, "instapaper", { page = phonePage, forms = { ["/instapaper"] = phoneForm(shell) } })
     if not ok then
-        add(UI.para{ text = "Не получилось открыть порт " .. Transfer.PORT .. ": " .. tostring(err), size = 16, width = cw, color = UI.C.text2 })
+        add(UI.para{ text = Transfer.portProblem(err), size = 16, width = cw, color = UI.C.text2 })
         return UI.pad(vg, { left = M, right = M })
     end
     local url = Transfer.url(ip)

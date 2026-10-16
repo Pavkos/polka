@@ -497,6 +497,15 @@ end
 -- Starts serving for a tool's screen: "transfer" (the upload page) or
 -- another tool with opts.page() for "/" and opts.forms[path] = handler.
 -- The server stops by itself once that screen is no longer shown.
+-- Why the page for the phone could not open, in Russian (the socket's words go to the log).
+function Transfer.portProblem(err)
+    local e = tostring(err or "")
+    if e:find("in use", 1, true) then
+        return string.format("Порт %d занят — возможно, «Книги по Wi‑Fi» уже открыты в другом месте. Перезапустите Полку.", Transfer.PORT)
+    end
+    return string.format("Не получилось открыть страницу для телефона (порт %d). Перезапустите Полку.", Transfer.PORT)
+end
+
 function Transfer.start(shell, view, opts)
     view = view or "transfer"
     if server and server.view ~= view then Transfer.stop() end
@@ -591,8 +600,7 @@ function Transfer.build(shell, W, H)
 
     local ok, err = Transfer.start(shell)
     if not ok then
-        add(UI.para{ text = "Не получилось открыть порт " .. Transfer.PORT .. ": " .. tostring(err),
-                     size = 16, width = cw, color = UI.C.text2 })
+        add(UI.para{ text = Transfer.portProblem(err), size = 16, width = cw, color = UI.C.text2 })
         return UI.pad(vg, { left = M, right = M })
     end
 

@@ -94,6 +94,16 @@ function Net.request(o)
     return code, not o.sink and table.concat(chunks) or nil
 end
 
+--- What went wrong with a background request, in Russian (for messages).
+function Net.why(err)
+    if err == "timeout" then return "сайт не ответил вовремя" end
+    if err == "network" then return "нет связи с сайтом" end
+    if err == "unauthorized" then return "сайт не принял ключ" end
+    if err == "too_many" then return "слишком много запросов подряд" end
+    if err == "server" then return "сайт ответил ошибкой" end
+    return "что-то пошло не так"
+end
+
 --- A JSON request; returns { status = code, data = decoded table } or { error = "..." }.
 function Net.call(o)
     local code, body, err = Net.request(o)

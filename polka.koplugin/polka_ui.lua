@@ -319,7 +319,7 @@ function UI.safely(fn, ...)
         local InfoMessage = require("ui/widget/infomessage")
         local UIManager = require("ui/uimanager")
         UIManager:show(InfoMessage:new{
-            text = "Что-то пошло не так. Подробности — в crash.log.\n\n" .. tostring(err):match("^[^\n]*"),
+            text = "Что-то пошло не так. Подробности — в crash.log.", -- (the error itself is in the log)
             timeout = 6,
         })
     end

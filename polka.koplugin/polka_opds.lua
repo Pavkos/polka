@@ -339,14 +339,18 @@ local ERRORS = {
     [410] = "Этой страницы в каталоге больше нет.",
 }
 
+-- What went wrong, in Russian; the socket's own words («host or service not
+-- provided, or not known», «connection refused»…) go to the log only.
 local function errorText(code)
     if type(code) == "number" then
         return ERRORS[code] or string.format("Каталог ответил ошибкой %d.", code)
     end
-    if code == "timeout" or code == "sink timeout" or code == "wantread" then
+    logger.warn("Polka: OPDS: network error:", code)
+    local e = tostring(code or "")
+    if e:find("timeout", 1, true) or e:find("wantread", 1, true) then
         return "Каталог не отвечает. Попробуйте ещё раз."
     end
-    return "Нет связи с каталогом" .. (code and (" (" .. tostring(code) .. ")") or "") .. "."
+    return "Нет связи с каталогом. Проверьте Wi‑Fi."
 end
 
 local function origin(url)
