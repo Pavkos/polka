@@ -214,21 +214,32 @@ local function heatmap(s, cw)
             end
         end
     end)
-    -- Month labels above the first column of each month.
-    local labels = OverlapGroup:new{ dimen = Geom:new{ w = grid_w, h = UI.text{ text = "Ag", size = 11 }:getSize().h } }
+    -- Month labels above the first column of each month. The newest month always
+    -- has its label (moved left to fit at the right edge); an older one that would
+    -- run into the label after it is left out.
+    local probe = UI.text{ text = "Ag", size = 11 }
+    local labels = OverlapGroup:new{ dimen = Geom:new{ w = grid_w, h = probe:getSize().h } }
+    probe:free()
+    local marks = {}
     local prev_month
-    local last_x = -1000
     for w = 1, weeks do
-        local t = cells[w][1].t
-        local month = tonumber(os.date("%m", t))
+        local month = tonumber(os.date("%m", cells[w][1].t))
         if prev_month and month ~= prev_month then
-            local x = (w - 1) * step
-            if x - last_x > UI.px(34) and x < grid_w - UI.px(24) then
-                table.insert(labels, UI.pad(UI.text{ text = UI.MONTHS_SHORT[month], size = 11, color = UI.C.text3 }, { left = x }))
-                last_x = x
-            end
+            local text = UI.text{ text = UI.MONTHS_SHORT[month], size = 11, color = UI.C.text3 }
+            marks[#marks + 1] = { x = (w - 1) * step, text = text, w = text:getSize().w }
         end
         prev_month = month
+    end
+    local next_x = grid_w + UI.px(6)
+    for i = #marks, 1, -1 do
+        local m = marks[i]
+        local x = math.max(0, math.min(m.x, grid_w - m.w))
+        if i == #marks or x + m.w + UI.px(6) <= next_x then
+            table.insert(labels, UI.pad(m.text, { left = x }))
+            next_x = x
+        else
+            m.text:free()
+        end
     end
     -- Legend.
     local legend = HorizontalGroup:new{ align = "center",
