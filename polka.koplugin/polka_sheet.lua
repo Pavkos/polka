@@ -161,8 +161,8 @@ function Sheet:build()
         end
         local note = self.note and UI.text{ text = self.note, size = 14, color = UI.C.text2 } or nil
         local room = cw - (self.icon and UI.px(44) or 0) - (note and note:getSize().w + UI.px(16) or 0)
-        local title = UI.text{ text = self.title, family = "serif_bold", size = self.title_size, max_width = room }
-        if title:getSize().w >= room then
+        local title = UI.text{ text = self.title, family = "serif_bold", size = self.title_size }
+        if title:getSize().w > room then
             -- a long title wraps instead of losing its end
             title:free()
             title = UI.para{ text = self.title, family = "serif_bold", size = self.title_size, width = room, line_height = 0.1 }

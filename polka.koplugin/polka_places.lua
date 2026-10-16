@@ -125,6 +125,14 @@ end
 local function targetPage(ui, r)
     local doc = ui.document
     local pages = doc:getPageCount()
+    if ui.rolling and r.kind == "kindle" and type(r.xp) == "string" and r.xp ~= "" then
+        -- another Kindle's exact place, where «Перейти» goes
+        local ok, page = pcall(function()
+            if doc.isXPointerInDocument and not doc:isXPointerInDocument(r.xp) then return nil end
+            return doc:getPageFromXPointer(r.xp)
+        end)
+        if ok and tonumber(page) then return math.max(1, math.min(pages, page)) end
+    end
     if ui.rolling and r.spine and r.frac and r.spine >= 0 then
         local f = fragment(doc, r.spine + 1)
         if f and f.page1 > f.page0 then

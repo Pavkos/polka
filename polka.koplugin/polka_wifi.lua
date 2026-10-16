@@ -74,6 +74,8 @@ function Wifi.connect(on_ok, on_fail)
         if on_ok then on_ok() end
         return true
     end
+    local ok_on, on = pcall(nm.isWifiOn, nm)
+    Wifi.radio_was_off = not (ok_on and on)
     nm.pending_connection = true
     UIManager:broadcastEvent(Event:new("NetworkConnecting"))
     local broadcast = true
@@ -104,17 +106,26 @@ function Wifi.connect(on_ok, on_fail)
     return true
 end
 
+-- Wi‑Fi that Polka turned on for nothing goes off again.
+local function radioOff()
+    if not Wifi.radio_was_off then return end
+    Wifi.radio_was_off = false
+    pcall(function() NetworkMgr():disableWifi(nil, false) end)
+end
+
 -- No known network nearby: say so, and offer KOReader's list.
 local function failed(sheet, callback)
     sheet:update{
         title = "Не нашёл знакомую сеть",
         body = "Рядом нет сети Wi‑Fi, к которой Kindle уже подключался.",
         status = false,
+        on_dismiss = radioOff,
         buttons = {
             { text = "Выбрать сеть", primary = true, callback = function()
+                Wifi.radio_was_off = false
                 NetworkMgr():toggleWifiOn(callback, false, true)
             end },
-            { text = "Закрыть" },
+            { text = "Закрыть", callback = radioOff },
         },
     }
 end
@@ -172,8 +183,8 @@ function Wifi.toggle(on, on_change)
             Wifi.connecting = false
             if on_change then on_change() end
             local sheet = Sheet:new{ icon = "wifi", title = "Включить Wi‑Fi?" }
-            failed(sheet, on_change)
             sheet:show()
+            failed(sheet, on_change)
         end)
         if quiet then
             Wifi.connecting = true
