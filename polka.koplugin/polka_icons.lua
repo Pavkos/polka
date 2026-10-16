@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 --[[--
 Polka: thin line icons for the reading toolbar and the «Aa» panel.
 

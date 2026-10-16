@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 --[[--
 Polka: the reader's card (формуляр), badges and the weekly challenge.
 
