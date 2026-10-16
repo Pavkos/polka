@@ -332,7 +332,7 @@ function Site.loginCode()
             sheet:update{
                 status = false,
                 big = grouped(res.code),
-                small = string.format("Откройте %s, нажмите «Войти кодом с Kindle» и введите этот код. Он действует %d %s.",
+                small = string.format("Откройте %s, нажмите «Войти кодом с читалки» и введите этот код. Он действует %d %s.",
                     Web.host(), mins, UI.plural(mins, "минуту", "минуты", "минут")),
                 buttons = { { text = "Готово" } },
             }
