@@ -300,7 +300,7 @@ function End:bottomBlock(bw)
         local text_w = bw - cover_w - UI.px(16) - open:getSize().w - UI.px(16)
         local state
         if self.next.status == "reading" and self.next.percent and self.next.percent > 0 then
-            state = string.format("%d %%", math.floor(self.next.percent * 100 + 0.5))
+            state = UI.percent(self.next.percent)
         else
             state = "не начата"
         end

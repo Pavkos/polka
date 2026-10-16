@@ -27,7 +27,7 @@ local function progressLine(rec)
     if not rec.percent or rec.percent <= 0 then
         return "Ещё не начата"
     end
-    local text = string.format("%d %%", math.floor(rec.percent * 100 + 0.5))
+    local text = UI.percent(rec.percent)
     local left = Books:timeLeft(rec)
     if left then
         text = text .. " · осталось ≈ " .. UI.duration(left)

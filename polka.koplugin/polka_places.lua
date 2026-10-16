@@ -225,7 +225,7 @@ local function readerName(kind)
 end
 
 local function pct(p)
-    return string.format("%d %%", math.floor((p or 0) * 100 + 0.5))
+    return require("polka_ui").percent(p)
 end
 
 --- Goes to a place from another reader (the place here stays reachable with "back").

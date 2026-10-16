@@ -642,7 +642,7 @@ function Transfer.build(shell, W, H)
         elseif e.failed then
             status = "не загрузилась"
         elseif e.progress then
-            status = string.format("%d %%", math.floor(e.progress * 100))
+            status = UI.percent(e.progress)
         end
         -- "Медленная книга" / "EPUB · 3,0 МБ · Новая полка"
         local base, ext = e.name:match("^(.-)%.([%w]+%.[zZ][iI][pP])$")

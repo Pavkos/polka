@@ -541,6 +541,18 @@ function UI.duration(secs, short)
     return string.format("%d мин", m)
 end
 
+-- How much is read, the one way Polka says it everywhere: "62 %" — rounded
+-- down (never more than was read), a no-break space before the sign, as on
+-- the site. p is a fraction (0.62).
+function UI.percentNumber(p)
+    p = tonumber(p) or 0
+    return math.max(0, math.min(100, math.floor(p * 100 + 1e-6)))
+end
+
+function UI.percent(p)
+    return string.format("%d\194\160%%", UI.percentNumber(p))
+end
+
 -- Thin space thousands separator: 12345 -> "12 345"
 function UI.number(n)
     local s = tostring(math.floor(n or 0))

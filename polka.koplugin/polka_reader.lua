@@ -392,7 +392,7 @@ function Reader:footerTexts(mode)
     if not pageno then return "", "" end
     local pages = (footer.pages and footer.pages > 0) and footer.pages or doc:getPageCount()
     local pct = footer.percent_finished or (pageno / math.max(1, pages))
-    local right = string.format("%d%%", math.floor(pct * 100))
+    local right = UI.percent(pct)
     if mode == "page" then
         return string.format("Стр. %d из %d", pageno, pages), right
     end

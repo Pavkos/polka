@@ -878,7 +878,7 @@ function Sync.run(cfg)
                     local pct = size > 0 and math.floor(bytes * 100 / size) or 0
                     if pct >= shown + 5 then
                         shown = pct
-                        progress(string.format("%s · %d %%", prefix, pct))
+                        progress(string.format("%s · %d\194\160%%", prefix, pct)) -- "62 %", as Polka writes it
                     end
                 end)
                 if part then

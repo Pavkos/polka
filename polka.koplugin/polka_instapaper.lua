@@ -686,7 +686,7 @@ local function articleRow(shell, it, cw, s, dir)
         if f.status == "complete" or (f.percent or 0) >= 0.98 then
             status = "✓ прочитано"
         elseif (f.percent or 0) > 0 then
-            status = string.format("%d %%", math.floor(f.percent * 100 + 0.5))
+            status = UI.percent(f.percent)
         else
             status = "на Kindle"
         end

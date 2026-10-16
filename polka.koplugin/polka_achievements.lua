@@ -516,8 +516,8 @@ A.CHALLENGES = {
         live_hint = function(ctx)
             local cur = ctx.current
             if not cur or cur.status == "complete" or not cur.percent then return nil end
-            local left = math.max(1, math.floor((1 - cur.percent) * 100 + 0.5))
-            return string.format("например, «%s» — осталось %d %%", cur.title or cur.name or "", left)
+            local left = math.max(1, 100 - UI.percentNumber(cur.percent))
+            return string.format("например, «%s» — осталось %d\194\160%%", cur.title or cur.name or "", left)
         end,
         progress = function(ctx, ws)
             for _, e in ipairs(ctx.fin_asc) do

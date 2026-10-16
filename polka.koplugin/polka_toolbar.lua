@@ -209,11 +209,11 @@ function Toolbar:bottomPanel(W)
     local M = self:margin()
     local cw = W - 2 * M
     local page, pages = self:pageInfo()
-    local pct = math.floor(page / pages * 100)
+    local pct = page / math.max(1, pages)
     if self.reader.footer and self.reader.footer.percent_finished then
-        pct = math.floor(self.reader.footer.percent_finished * 100)
+        pct = self.reader.footer.percent_finished
     end
-    local where = UI.tap(UI.text{ text = string.format("Стр. %d из %d · %d%%", page, pages, pct), size = 14 },
+    local where = UI.tap(UI.text{ text = string.format("Стр. %d из %d · %s", page, pages, UI.percent(pct)), size = 14 },
         function() self:closeThen(function() self.ui.gotopage:onShowGotoDialog() end) end)
     local chapter = ""
     pcall(function() chapter = self.ui.toc:getTocTitleByPage(page) or "" end)
