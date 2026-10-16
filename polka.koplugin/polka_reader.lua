@@ -98,8 +98,6 @@ function Reader:detach()
     self:restoreRefresh()
     local footer = self.footer
     self:restorePatches()
-    -- the quiet gestures (polka_quiet) may have sat on top of ours
-    pcall(function() require("polka_quiet").patchGestures(self.ui) end)
     if footer then
         if self.footer_mode_before ~= nil then
             footer:applyFooterMode(self.footer_mode_before)

@@ -7,10 +7,9 @@ What KOReader shows that nobody asked for, and what Polka does about it
 Polka away gives KOReader back exactly as it was):
 
   «Открытие файла «…».» on every book      the message is made invisible
-  toasts from stray touches («Подсветка   KOReader's default gestures for the light
-    включена.», «Размер шрифта: 22»)       and the font size do nothing, unless the
-                                          reader set them up; toasts from gestures
-                                          stay hidden (until a mask is chosen)
+  toasts after gestures («Подсветка        not shown (until a mask is chosen in
+    включена.», «Размер шрифта: 22»)       KOReader's settings); the gestures
+                                          themselves work as before
   the loading bar at the top left          not drawn (unless switched on)
   «Вы хотите включить Wi‑Fi?» …            Polka's sheet (polka_wifi)
   «Изменение вступит в силу …»             Polka's sheet, then the splash
@@ -28,7 +27,6 @@ local Event = require("ui/event")
 local UIManager = require("ui/uimanager")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
-local util = require("util")
 
 local Quiet = {}
 
@@ -89,37 +87,6 @@ local function quietLoadingBar()
         if G_reader_settings:hasNot("cre_show_progress") then return end
         return orig(self, percent)
     end
-end
-
--- Gestures ----------------------------------------------------------------------------
-
--- KOReader's default gestures that change the light or the font size by
--- accident. Only while they are exactly KOReader's defaults.
-Quiet.GESTURES = {
-    tap_left_bottom_corner = true,
-    one_finger_swipe_left_edge_down = true,
-    one_finger_swipe_left_edge_up = true,
-    two_finger_swipe_south = true,
-    two_finger_swipe_north = true,
-    spread_gesture = true,
-    pinch_gesture = true,
-}
-
-local wrappers = setmetatable({}, { __mode = "k" })
-
-function Quiet.patchGestures(ui)
-    local g = ui and ui.gestures
-    if not g or type(g.gestureAction) ~= "function" or wrappers[g.gestureAction] then return end
-    local orig = g.gestureAction
-    local function quiet(this, action, ges)
-        if Quiet.GESTURES[action] and type(this.defaults) == "table" and this.defaults[action] ~= nil
-                and util.tableEquals(this.gestures and this.gestures[action], this.defaults[action]) then
-            return nil -- falls through to whatever is under the finger (a page turn)
-        end
-        return orig(this, action, ges)
-    end
-    wrappers[quiet] = true
-    g.gestureAction = quiet
 end
 
 -- Restart and exit --------------------------------------------------------------------
@@ -272,13 +239,9 @@ function Quiet.install(plugin)
         -- a launcher on the Kindle's screen gets this version's script (after an update)
         UIManager:scheduleIn(20, function() guard("launcher", require("polka_launcher").refresh) end)
     end
-    local ui = plugin.ui
-    -- the Gestures plugin may come after Polka: next tick, and on ReaderReady
-    UIManager:nextTick(function() guard("gestures", Quiet.patchGestures, ui) end)
 end
 
 function Quiet.onReaderReady(plugin)
-    guard("gestures", Quiet.patchGestures, plugin.ui)
     guard("end of book", patchEndOfBook, plugin)
 end
 
