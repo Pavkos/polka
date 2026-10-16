@@ -1,16 +1,19 @@
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Polka brand patch, version 1.7.0
 --[[--
-«Полка» instead of «KOReader» in KOReader's own menus and messages.
+«Полка» as the name of the app in KOReader's own titles and messages.
 
 Polka copies this file into KOReader's patches folder (koreader/patches) and
 keeps it up to date. It runs early at every start, before the language is
-loaded, and from then on every time the language is (re)loaded rewrites the
-loaded Russian translations: «KOReader'а» → «Полки», «KOReader'у»/«KOReader'е»
-→ «Полке», «KOReader'ом» → «Полкой», and each bare «KOReader» in its right
-case («перезапустите Полку», «объектов Полки», «Полка не найдёт»…). Where
-KOReader means KOReader itself — its progress sync server, its wiki, other
-devices running KOReader, the About box with its licence — it stays.
+loaded, and every time the language is (re)loaded it rewrites a short list of
+Russian translations where KOReader is just the app's name: the file
+browser's title, exit and restart («Выйти из Полки?», «Перезапустить Полку»,
+«Пожалуйста, перезапустите Полку…») and a few messages about the app itself
+(«Полка перезапускается…», «Работа Полки будет завершена»). Everything that
+is about KOReader as such stays as it is: help and technical texts (CSS,
+.sdr folders and metadata, settings and data folders, plugins, patches),
+KOReader's own updates, earlier KOReader versions, its wiki, forum and sync
+server, the About box with its licence.
 
 It also keeps KOReader's quick start guide from opening over Polka on the
 very first start, and, right after Polka updated itself, puts the previous
@@ -89,29 +92,31 @@ local function main()
 
     -- The words -------------------------------------------------------------------------
 
-    -- KOReader as KOReader: kept as it is.
-    local PROTECT = {
-        "сервер KOReader'а", "сервере KOReader'а", "вики KOReader'а", "пользователей KOReader'а",
-        "где установлен KOReader",
+    -- Where KOReader is just the app's name (English msgids). Nothing else is touched.
+    local BRAND = {
+        "KOReader",                                   -- the file browser's title
+        "Exit KOReader",
+        "Exit KOReader?",
+        "Restart KOReader",
+        "High memory usage: %1 MB\n\nExit KOReader?",
+        "High memory usage: %1 MB\n\nRestart KOReader?",
+        "High memory usage!\n\nKOReader is restarting…",
+        "Caches cleared. Please restart KOReader.",
+        "KOReader needs to be restarted to apply the new default settings.",
+        "Please restart KOReader for the new language setting to take effect.",
+        "Start-up of background extraction job failed.\nPlease restart KOReader or your device.",
+        "Failed recognizing or parsing this file: unsupported or invalid document.\nKOReader will exit now.",
+        "KOReader is currently waiting for connectivity. This may take up to 45s, so you may just want to try again later.",
     }
-    -- Phrases where more than the name changes («Полка» is feminine).
-    local PHRASES = {
-        { "чтобы KOReader мог", "чтобы Полка могла" },
-        { "KOReader сам выберет", "Полка сама выберет" },
-        { "IP-адрес в KOReader", "IP-адрес в Полку" },
-        { "документы в KOReader", "документы в Полке" },
-        { "Создано в KOReader", "Создано в Полке" },
-    }
+    -- «Полка» is feminine: the cases KOReader's Russian translation uses.
     local SUFFIXES = {
         { "KOReader'ом", "Полкой" },
         { "KOReader'а", "Полки" },
         { "KOReader'у", "Полке" },
         { "KOReader'е", "Полке" },
     }
-    -- A bare «KOReader» after these words is in the accusative, or the genitive.
-    local ACCUSATIVE = { "настроить", "Перезапустить", "перезапустить", "Перезапустите", "перезапустите",
-                         "обновить", "приведёт" }
-    local GENITIVE = { "объектов", "инспектор", "запуске", "возможности" }
+    -- A bare «KOReader» after these words is in the accusative.
+    local ACCUSATIVE = { "Перезапустить", "перезапустить", "Перезапустите", "перезапустите" }
 
     local function plain(s)
         return (s:gsub("[%%%^%$%(%)%.%[%]%*%+%-%?]", "%%%0"))
@@ -119,47 +124,17 @@ local function main()
 
     local function rename(s)
         if type(s) ~= "string" or not s:find("KOReader", 1, true) then return s end
-        local kept = {}
-        for i, p in ipairs(PROTECT) do
-            s = s:gsub(plain(p), function()
-                kept[i] = p
-                return "\1" .. i .. "\1"
-            end)
-        end
-        for _, p in ipairs(PHRASES) do s = s:gsub(plain(p[1]), p[2]) end
         for _, p in ipairs(SUFFIXES) do s = s:gsub(plain(p[1]), p[2]) end
         for _, w in ipairs(ACCUSATIVE) do s = s:gsub(plain(w .. " KOReader"), w .. " Полку") end
-        for _, w in ipairs(GENITIVE) do s = s:gsub(plain(w .. " KOReader"), w .. " Полки") end
-        s = s:gsub("KOReader", "Полка")
-        s = s:gsub("\1(%d+)\1", function(i) return kept[tonumber(i)] end)
-        return s
+        return (s:gsub("KOReader", "Полка"))
     end
     M.rename = rename
+    M.BRAND = BRAND
 
     -- A few of KOReader's Russian lines, in Polka's calmer words.
     local WORDS = {
         ["Searching dictionary for:\n%1"] = "Ищу в словаре:\n%1",
     }
-
-    -- The About box («KOReader v… Средство просмотра документов…») is KOReader's
-    -- own credit and licence notice: it stays.
-    local function keep(msgid)
-        return msgid == "" or msgid:find("^KOReader %%1\n\nA document viewer") ~= nil
-    end
-
-    local function walk(t)
-        for msgid, v in pairs(t) do
-            if type(msgid) == "string" and not keep(msgid) then
-                if type(v) == "string" then
-                    if v:find("KOReader", 1, true) then t[msgid] = rename(v) end
-                elseif type(v) == "table" then
-                    for k, s in pairs(v) do
-                        if type(s) == "string" and s:find("KOReader", 1, true) then v[k] = rename(s) end
-                    end
-                end
-            end
-        end
-    end
 
     local function disabled()
         if not G_reader_settings then return false end
@@ -170,17 +145,14 @@ local function main()
     function M.rebrand()
         if disabled() or not exists(plugin_dir .. "/main.lua") then return end
         local _ = require("gettext")
-        if type(_.translation) == "table" then
-            walk(_.translation)
-            if tostring(_.current_lang or ""):match("^ru") then
-                for msgid, text in pairs(WORDS) do
-                    if _.translation[msgid] then _.translation[msgid] = text end
-                end
-            end
+        local t = _.translation
+        if type(t) ~= "table" then return end
+        for _i, msgid in ipairs(BRAND) do
+            if type(t[msgid]) == "string" then t[msgid] = rename(t[msgid]) end
         end
-        if type(_.context) == "table" then
-            for _ctx, t in pairs(_.context) do
-                if type(t) == "table" then walk(t) end
+        if tostring(_.current_lang or ""):match("^ru") then
+            for msgid, text in pairs(WORDS) do
+                if t[msgid] then t[msgid] = text end
             end
         end
     end
