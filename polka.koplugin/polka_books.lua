@@ -92,6 +92,26 @@ local function isBookFile(name, path)
     return Books.isBookName(name) and DocumentRegistry:hasProvider(path)
 end
 
+-- Titles and authors as they come from books, the cover cache or the sidecar:
+-- runs of spaces collapsed, ends trimmed («Лев  Толстой» from an FB2 with a
+-- first and a last name → «Лев Толстой»). Authors keep their "\n" separators.
+function Books.tidy(s)
+    if type(s) ~= "string" then return s end
+    -- (a no-break space, U+00A0, counts as a space too)
+    s = s:gsub("\194\160", " "):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "")
+    return s
+end
+
+function Books.tidyAuthors(s)
+    if type(s) ~= "string" then return s end
+    local out = {}
+    for line in (s .. "\n"):gmatch("([^\n]*)\n") do
+        line = Books.tidy(line)
+        if line ~= "" then out[#out + 1] = line end
+    end
+    return table.concat(out, "\n")
+end
+
 -- "Автор - Название.fb2.zip" -> "Автор", "Название"
 local function parseFilename(name)
     -- "x.fb2.zip" loses both, "x.epub" one; "Толстой Л.Н. - …" keeps its dots
@@ -232,8 +252,9 @@ function Books:loadMeta()
                         tries[path] = in_progress
                     elseif res[6][i] ~= "Y" then
                         -- (series and language are for the site sync, polka_websync)
-                        meta[path] = { title = res[3][i], authors = res[4][i], has_cover = res[5][i] == "Y",
-                                       series = res[8][i], series_index = tonumber(res[9][i]), lang = res[10][i] }
+                        meta[path] = { title = Books.tidy(res[3][i]), authors = Books.tidyAuthors(res[4][i]),
+                                       has_cover = res[5][i] == "Y", series = Books.tidy(res[8][i]),
+                                       series_index = tonumber(res[9][i]), lang = res[10][i] }
                     else
                         meta[path] = { has_cover = res[5][i] == "Y" }
                     end
@@ -282,9 +303,9 @@ function Books:brief(rec)
             authors = (authors and authors ~= "") and authors or fauthor
         end
         if authors then
-            authors = authors:gsub("\n", ", ")
+            authors = Books.tidyAuthors(authors):gsub("\n", ", ")
         end
-        rec.title, rec.authors = title, authors
+        rec.title, rec.authors = Books.tidy(title), authors
         rec.key_title = sortKey(title)
         rec.key_author = authors and authors ~= "" and sortKey(authors) or "\255"
         rec.key_name = sortKey(rec.name)
@@ -437,7 +458,7 @@ function Books:finishInfo(path)
                 local props = ds:readSetting("doc_props")
                 if type(props) == "table" then
                     c.lang = type(props.language) == "string" and props.language or nil
-                    c.authors = type(props.authors) == "string" and props.authors or nil
+                    c.authors = type(props.authors) == "string" and Books.tidyAuthors(props.authors) or nil
                 end
                 local stats = ds:readSetting("stats")
                 c.pages = tonumber(ds:readSetting("doc_pages")) or (type(stats) == "table" and tonumber(stats.pages)) or nil

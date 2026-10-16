@@ -161,11 +161,11 @@ function End:init()
     local ui = self.ui
     self.path = ui.document.file
     local props = ui.doc_props or {}
-    self.title = props.display_title or props.title
+    self.title = Books.tidy(props.display_title or props.title)
     if not self.title or self.title == "" then
         self.title = Books:brief(Books:record(self.path)).title
     end
-    self.authors = type(props.authors) == "string" and props.authors:gsub("\n", ", ") or nil
+    self.authors = type(props.authors) == "string" and Books.tidyAuthors(props.authors):gsub("\n", ", ") or nil
     -- the stamp goes on now; an already finished book keeps its day
     local summary = ui.doc_settings:readSetting("summary") or {}
     self.before = { status = summary.status, modified = summary.modified }

@@ -115,7 +115,7 @@ end
 
 function Toolbar:title()
     local props = self.ui.doc_props or {}
-    local title = props.display_title or props.title
+    local title = require("polka_books").tidy(props.display_title or props.title)
     if not title or title == "" then
         title = (self.ui.document.file or ""):match("([^/]+)$") or ""
         title = title:gsub("%.[^.]+$", "")
