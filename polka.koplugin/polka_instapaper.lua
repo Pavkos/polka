@@ -22,7 +22,6 @@ local ConfirmBox = require("ui/widget/confirmbox")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InfoMessage = require("ui/widget/infomessage")
 local LuaSettings = require("luasettings")
-local NetworkMgr = require("ui/network/manager")
 local Notification = require("ui/widget/notification")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -337,8 +336,9 @@ local function state(shell)
     return shell.instapaper
 end
 
-local function online(fn)
-    if NetworkMgr.runWhenConnected then NetworkMgr:runWhenConnected(fn) else fn() end
+-- With Wi‑Fi off, Polka asks in its own sheet, saying why («reason»).
+local function online(fn, reason)
+    require("polka_wifi").run(reason or "Нужен, чтобы получить статьи.", fn)
 end
 
 -- The shelf's index, opened once per visit to the screen.
@@ -398,7 +398,7 @@ local function downloadOne(shell, it, open_after)
         else
             shell:refresh("ui")
         end
-    end)
+    end, "Нужен, чтобы скачать статью.")
 end
 
 local function downloadAll(shell, list)
@@ -425,7 +425,7 @@ local function downloadAll(shell, list)
                 UI.plural(done, "статья", "статьи", "статей")) })
         end
         shell:refresh("ui")
-    end)
+    end, "Нужен, чтобы скачать статьи.")
 end
 
 local function connected(shell)
@@ -466,7 +466,7 @@ local function enterHere(shell)
                         return
                     end
                     connected(shell)
-                end)
+                end, "Нужен, чтобы подключить Instapaper.")
             end },
         }},
     }
@@ -625,8 +625,10 @@ local function phoneView(shell, W, H)
         Transfer.stop()
         add(UI.para{ text = "Нужен Wi‑Fi: Kindle и телефон должны быть в одной сети.", size = 17, width = cw, color = UI.C.text2 })
         add(UI.vgap(UI.px(22)))
-        add(button("Включить Wi‑Fi", true, function()
-            NetworkMgr:runWhenConnected(function() if shell.shown then shell:refresh("ui") end end)
+        local Wifi = require("polka_wifi")
+        add(button(Wifi.connecting and "Подключаюсь…" or "Включить Wi‑Fi", true, function()
+            if Wifi.connecting then return end
+            Wifi.toggle(true, function() if shell.shown then shell:refresh("ui") end end)
         end))
         return UI.pad(vg, { left = M, right = M })
     end
@@ -750,7 +752,7 @@ local function articleRow(shell, it, cw, s, dir)
                 st.starts = { 1 }
                 st.page = 1
                 shell:refresh("ui")
-            end)
+            end, "Нужен, чтобы отправить статью в архив.")
         end }})
         dialog = ButtonDialog:new{ title = it.title, title_align = "center", buttons = buttons }
         UIManager:show(dialog)

@@ -21,7 +21,6 @@ local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local LuaSettings = require("luasettings")
-local NetworkMgr = require("ui/network/manager")
 local Notification = require("ui/widget/notification")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -474,12 +473,9 @@ local function shelfPath(shelf)
 end
 
 -- A connection is enough (a calibre server at home needs no internet).
-local function online(fn)
-    if NetworkMgr.runWhenConnected then
-        NetworkMgr:runWhenConnected(fn)
-    else
-        fn()
-    end
+-- With Wi‑Fi off, Polka asks in its own sheet, saying why («reason»).
+local function online(fn, reason)
+    require("polka_wifi").run(reason or "Нужен, чтобы открыть каталог.", fn)
 end
 
 -- Opens a feed (or a search) on top of the current one.
@@ -514,7 +510,7 @@ local function loadMore(shell, level, done)
         for _, e in ipairs(feed.entries) do table.insert(level.feed.entries, e) end
         level.feed.next = feed.next ~= level.feed.next and feed.next or nil
         done(#level.feed.entries > before)
-    end)
+    end, "Нужен, чтобы загрузить ещё.")
 end
 
 -- Actions ------------------------------------------------------------------------------
@@ -564,7 +560,7 @@ end
 local function catalogActions(shell, cat)
     if not cat.own then
         UIManager:show(InfoMessage:new{
-            text = "Этот каталог — из настроек KOReader («Поиск» → «Каталог OPDS»). Изменить его можно там, а свои каталоги — добавить здесь.",
+            text = "Этот каталог — из «Всех настроек» («Поиск» → «Каталог OPDS»). Изменить его можно там, а свои каталоги — добавить здесь.",
         })
         return
     end
@@ -603,7 +599,7 @@ function OPDS.runSearch(shell, level, words)
             return
         end
         open(shell, level.cat, fillTemplate(template, words), "«" .. words .. "»")
-    end)
+    end, "Нужен, чтобы искать в каталоге.")
 end
 
 local function search(shell, level)
@@ -703,7 +699,7 @@ function OPDS.download(shell, it, acq)
         G_reader_settings:saveSetting("polka_opds_shelf", shelf)
         UIManager:show(Notification:new{ text = shelf ~= "" and ("Книга на полке «" .. shelf .. "»") or "Книга в библиотеке" })
         shell:refresh("ui")
-    end)
+    end, "Нужен, чтобы скачать книгу.")
 end
 
 -- Drawing ------------------------------------------------------------------------------
@@ -786,7 +782,7 @@ local function catalogsView(shell, W, H)
     add(rows)
     st.starts[st.page + 1] = items[next_i] and next_i or nil
     if not items[next_i] then
-        local note = UI.para{ text = "Каталоги из настроек KOReader тоже здесь. Свой каталог можно изменить долгим нажатием.",
+        local note = UI.para{ text = "Каталоги из «Всех настроек» тоже здесь. Свой каталог можно изменить долгим нажатием.",
                               size = 13, color = UI.C.text3, width = cw }
         if used + UI.px(12) + note:getSize().h <= H - footer_h then
             add(UI.vgap(UI.px(12)))

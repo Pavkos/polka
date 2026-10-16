@@ -268,7 +268,7 @@ local function noStats(cw)
     table.insert(vg, UI.para{ text = "Здесь появится ваша статистика: минуты за день, серии, год по дням и прочитанные книги.",
                               family = "serif_bold", size = 20, width = cw, align = "center" })
     table.insert(vg, UI.vgap(UI.px(12)))
-    table.insert(vg, UI.para{ text = "Она берётся из плагина «Статистика» KOReader — достаточно почитать несколько минут.",
+    table.insert(vg, UI.para{ text = "Она собирается сама — достаточно почитать несколько минут.",
                               size = 16, width = cw, color = UI.C.text2, align = "center" })
     return vg
 end

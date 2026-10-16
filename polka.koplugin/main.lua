@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 --[[--
 Polka («Полка») — a calm, Kindle-like home for KOReader.
 
@@ -11,9 +12,14 @@ metadata come from KOReader's CoverBrowser cache, progress from each book's
 sidecar, statistics from the Statistics plugin database. Polka never writes
 to books; it only stores a few settings prefixed with "polka_".
 
-With polka_web_config.lua in its folder, Polka also keeps a personal site
-in sync (polka_web): statistics and quotes go there, books uploaded there
-come to the shelves. That runs in a separate process, in the background.
+Connected to a reader's card on the site (polka_web, polka_site), Polka keeps
+it in sync: statistics, quotes and the place in each book go there, books
+uploaded there come to the shelves. That runs in a separate process, in the
+background.
+
+Polka also keeps KOReader quiet (polka_quiet: no «Открытие файла…», no
+toasts from stray touches, its own Wi‑Fi, restart and end-of-book screens)
+and calls the device «Полка» (patches/1-polka-brand.lua).
 ]]
 
 local ConfirmBox = require("ui/widget/confirmbox")
@@ -81,6 +87,8 @@ function Polka:init()
     self.ui.menu:registerToMainMenu(self)
     local ok, err = pcall(Web.init, self.path)
     if not ok then logger.err("Polka: site sync:", err) end
+    ok, err = pcall(function() require("polka_quiet").install(self) end)
+    if not ok then logger.err("Polka: quiet:", err) end
 
     if self.ui.document then
         -- Inside a book: reading like on a Kindle (status line, toolbar, «Aa»).
@@ -136,9 +144,19 @@ end
 
 function Polka:onReaderReady()
     if self.reader then self.reader:patchGestures() end
+    pcall(function() require("polka_quiet").onReaderReady(self) end)
+    local Places = require("polka_places")
+    UI.safely(Places.opened, self.ui)
     local jump = state.pending_jump
     state.pending_jump = nil
     local doc = self.ui and self.ui.document
+    if not (jump and doc and doc.file == jump.file) then
+        -- another reader got further in this book later: offer to go there
+        local ui = self.ui
+        UIManager:scheduleIn(1, function()
+            if ui.document then UI.safely(Places.offer, ui) end
+        end)
+    end
     -- (an open that was cancelled — "Open this file?" → Cancel — must not
     -- make the same book jump much later)
     if jump and doc and doc.file == jump.file and os.time() - (jump.at or 0) < 120 then
@@ -162,6 +180,10 @@ end
 -- (By CloseWidget time ui.document is already gone, so test self.reader.)
 function Polka:onCloseDocument()
     if self.reader then self.reader:onClose() end
+    if self.ui and self.ui.document then
+        local ok, err = pcall(require("polka_places").record, self.ui)
+        if not ok then logger.warn("Polka: place:", err) end
+    end
     pcall(Web.onCloseDocument)
 end
 
@@ -206,6 +228,9 @@ end
 function Polka:onNetworkConnected()
     self:healScreen()
     pcall(Web.onNetworkConnected)
+    pcall(function() require("polka_update").onNetworkConnected() end)
+    local Site = package.loaded["polka_site"]
+    if Site then pcall(Site.onNetworkConnected) end
 end
 function Polka:onNetworkDisconnected() self:healScreen() end
 
@@ -267,7 +292,7 @@ end
 function Polka:promptDisableOthers(names)
     UIManager:show(ConfirmBox:new{
         text = "Включён SimpleUI — две оболочки сразу будут мешать друг другу.\n\n"
-            .. "Выключить его и перезапустить KOReader? Вернуть можно в «Прочие инструменты → Управление плагинами».",
+            .. "Выключить его и перезапустить? Вернуть можно в «Прочие инструменты → Управление плагинами».",
         ok_text = "Выключить и перезапустить",
         cancel_text = "Не сейчас",
         ok_callback = function()
@@ -282,9 +307,9 @@ function Polka:promptDisableOthers(names)
             end
             G_reader_settings:flush()
             if Device:canRestart() then
-                UIManager:broadcastEvent(Event:new("Restart"))
+                require("polka_quiet").restart()
             else
-                UIManager:show(InfoMessage:new{ text = "Готово. Перезапустите KOReader." })
+                UIManager:show(InfoMessage:new{ text = "Готово. Перезапустите Полку." })
             end
         end,
     })
@@ -306,7 +331,7 @@ function Polka:addToMainMenu(menu_items)
                 },
                 {
                     text = "Чтение как на Kindle",
-                    help_text = "Нижняя строка «Осталось в главе», тулбар по тапу сверху страницы, панель «Aa». Свайп вниз от верхнего края по-прежнему открывает меню KOReader.",
+                    help_text = "Нижняя строка «Осталось в главе», тулбар по тапу сверху страницы, панель «Aa». Свайп вниз от верхнего края по-прежнему открывает полное меню.",
                     checked_func = function() return Reader.isOn() end,
                     callback = function()
                         local on = not Reader.isOn()

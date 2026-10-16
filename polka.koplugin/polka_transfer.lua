@@ -15,7 +15,6 @@ never leave the books folder; only formats the library shows are accepted.
 ]]
 
 local HorizontalGroup = require("ui/widget/horizontalgroup")
-local NetworkMgr = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local lfs = require("libs/libkoreader-lfs")
@@ -579,8 +578,10 @@ function Transfer.build(shell, W, H)
         add(UI.para{ text = "Нужен Wi‑Fi: Kindle и телефон (или компьютер) должны быть в одной сети.",
                      size = 17, width = cw, color = UI.C.text2 })
         add(UI.vgap(UI.px(22)))
-        add(button("Включить Wi‑Fi", function()
-            NetworkMgr:runWhenConnected(function()
+        local Wifi = require("polka_wifi")
+        add(button(Wifi.connecting and "Подключаюсь…" or "Включить Wi‑Fi", function()
+            if Wifi.connecting then return end
+            Wifi.toggle(true, function()
                 if shell.shown then shell:refresh("ui") end
             end)
         end, true))
