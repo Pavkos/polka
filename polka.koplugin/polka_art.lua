@@ -220,26 +220,47 @@ function Art.seed(s)
     return h
 end
 
--- lines: { "ПРОЧИТАНО", "08.03.2026" }; o: { size = font units, angle = degrees, seed = n }
+-- lines: { "ПРОЧИТАНО", "08.03.2026" }; o: { size = font units, angle = degrees, seed = n,
+-- big = true for the large stamp at the end of a book (as in its mockup): crisp ink,
+-- rounded corners, the thick line inside and the thin one around it, letters set apart }
+local boxes = {} -- key -> the stamp's size before the tilt: { w, h, frame }
+
 local function stampMask(lines, o)
-    local key = string.format("stamp%s:%d:%d:%d", table.concat(lines, "|"), o.size, o.angle, o.seed)
-    if cached(key) then return cache[key] end
+    local key = string.format("stamp%s:%d:%d:%d:%s", table.concat(lines, "|"), o.size, o.angle, o.seed, o.big and "b" or "")
+    if cached(key) then return cache[key], boxes[key] end
     local WHITE = Blitbuffer.Color8(255)
-    local pad_x, pad_y = UI.px(8), UI.px(2)
+    local pad_x, pad_top, pad_bottom = UI.px(8), UI.px(2), UI.px(2)
     local bw1, gap, bw2 = max(2, UI.px(2)), max(2, UI.px(2)), max(1, UI.px(1))
+    local spacing, line_gap = {}, 0
+    if o.big then
+        pad_x, pad_top, pad_bottom = UI.px(26), UI.px(10), UI.px(8)
+        bw1, gap, bw2 = max(1, UI.px(1.5)), max(2, UI.px(3)), max(2, UI.px(3))
+        spacing, line_gap = { 0.16, 0.08 }, UI.px(2)
+    end
     local frame = bw1 + gap + bw2
     local texts, tw, th = {}, 0, 0
     for i, line in ipairs(lines) do
-        local t = TextWidget:new{
-            text = line, padding = 0, fgcolor = WHITE,
-            face = UI.face("sans_bold", i == 1 and o.size or max(7, floor(o.size * 0.86))),
-        }
-        local sz = t:getSize()
-        texts[i] = { t = t, w = sz.w, h = sz.h }
-        tw, th = max(tw, sz.w), th + sz.h
+        local size = i == 1 and o.size or max(7, floor(o.size * (o.big and 0.5 or 0.86)))
+        local face = UI.face("sans_bold", size)
+        local sp = spacing[i] and floor(UI.px(size) * spacing[i] + 0.5) or 0
+        local glyphs, w, h = {}, 0, 0
+        local chunks = { line }
+        if sp > 0 then
+            chunks = {}
+            for ch in line:gmatch("[%z\1-\127\194-\244][\128-\191]*") do chunks[#chunks + 1] = ch end
+        end
+        for _, ch in ipairs(chunks) do
+            local t = TextWidget:new{ text = ch, padding = 0, fgcolor = WHITE, face = face }
+            local sz = t:getSize()
+            if #glyphs > 0 then w = w + sp end
+            glyphs[#glyphs + 1] = { t = t, w = sz.w }
+            w, h = w + sz.w, max(h, sz.h)
+        end
+        texts[i] = { glyphs = glyphs, w = w, h = h, sp = sp }
+        tw, th = max(tw, w), th + h + (i > 1 and line_gap or 0)
     end
     local sw = tw + 2 * (pad_x + frame)
-    local sh = th + 2 * (pad_y + frame)
+    local sh = th + 2 * frame + pad_top + pad_bottom
     -- One transparent pixel around the stamp spares bounds checks below.
     local src, sp, ss = newMask(sw + 2, sh + 2)
     local function rect(x, y, w, h) src:paintRect(x + 1, y + 1, w, h, WHITE) end
@@ -249,13 +270,24 @@ local function stampMask(lines, o)
         rect(off, off, bw, sh - 2 * off)
         rect(sw - off - bw, off, bw, sh - 2 * off)
     end
-    box(0, bw1)
-    box(bw1 + gap, bw2)
-    local ty = frame + pad_y
-    for _, e in ipairs(texts) do
-        e.t:paintTo(src, floor((sw - e.w) / 2) + 1, ty + 1)
+    if o.big then
+        local r2 = UI.px(6)
+        src:paintBorder(1, 1, sw, sh, bw1, WHITE, r2 + gap + bw1)
+        src:paintBorder(1 + bw1 + gap, 1 + bw1 + gap, sw - 2 * (bw1 + gap), sh - 2 * (bw1 + gap), bw2, WHITE, r2)
+    else
+        box(0, bw1)
+        box(bw1 + gap, bw2)
+    end
+    local ty = frame + pad_top
+    for i, e in ipairs(texts) do
+        if i > 1 then ty = ty + line_gap end
+        local x = floor((sw - e.w) / 2)
+        for _, g in ipairs(e.glyphs) do
+            g.t:paintTo(src, x + 1, ty + 1)
+            x = x + g.w + e.sp
+            g.t:free()
+        end
         ty = ty + e.h
-        e.t:free()
     end
 
     -- Tilt (bilinear sampling) and uneven ink: soft blotches, grain and a
@@ -295,7 +327,9 @@ local function stampMask(lines, o)
                 local i0 = y0 * ss + x0
                 local v = (sp[i0] * (1 - fx) + sp[i0 + 1] * fx) * (1 - fy)
                         + (sp[i0 + ss] * (1 - fx) + sp[i0 + ss + 1] * fx) * fy
-                if v > 0 then
+                if v > 0 and o.big then
+                    dp[oy * ds + ox] = v >= 255 and 255 or floor(v)
+                elseif v > 0 then
                     local gx = ox * inv_cell
                     local ix = floor(gx)
                     local tx = gx - ix
@@ -310,7 +344,8 @@ local function stampMask(lines, o)
         end
     end
     src:free()
-    return remember(key, dst)
+    boxes[key] = { w = sw, h = sh, frame = bw1 + gap }
+    return remember(key, dst), boxes[key]
 end
 
 local Stamp = Widget:extend{
@@ -319,11 +354,15 @@ local Stamp = Widget:extend{
     angle = -4,
     seed = 1,
     color = nil,
+    big = false,
 }
 
 function Stamp:init()
-    self.mask = stampMask(self.lines, { size = self.size, angle = self.angle, seed = self.seed })
+    local box
+    self.mask, box = stampMask(self.lines, { size = self.size, angle = self.angle, seed = self.seed, big = self.big })
     self.w, self.h = self.mask:getWidth(), self.mask:getHeight()
+    -- before the tilt, without the thin line around it (what a page lays out)
+    self.box_h = box and (box.h - 2 * box.frame) or self.h
 end
 
 function Stamp:getSize()
@@ -346,7 +385,7 @@ function Art.stamp(lines, o)
         angle = 2 + seed % spread
         if seed % 10 < 7 then angle = -angle end
     end
-    return Stamp:new{ lines = lines, size = o.size or 12, angle = angle, seed = seed, color = o.color }
+    return Stamp:new{ lines = lines, size = o.size or 12, angle = angle, seed = seed, color = o.color, big = o.big }
 end
 
 return Art
