@@ -140,16 +140,60 @@ local function guard(label, fn, ...)
     return ok
 end
 
+-- Pages: whole screens of their own (the site, connecting it, about Polka),
+-- with "‹ Title" where the tabs are. Each lives in a module with
+-- pageTitle(shell, id), buildPage(shell, id, W, H) and, optionally,
+-- leavePage(shell, id) and suspendPage(shell, id).
+Shell.PAGES = {
+    site = "polka_site",
+    connect = "polka_site",
+    about = "polka_about",
+}
+
+local function pageModule(id)
+    local name = Shell.PAGES[id]
+    if not name then return nil end
+    local ok, mod = pcall(require, name)
+    if not ok then
+        logger.err("Polka: cannot load", name, mod)
+        return nil
+    end
+    return mod
+end
+
+-- "‹ Подключить сайт": the back arrow and the page's title, under a rule.
+function Shell:pageHeader(title)
+    local W = self.dimen.w
+    local arrow = UI.center(UI.px(44), UI.px(44), require("polka_icons").widget("chev_left", UI.px(26),
+        { stroke = math.max(2, UI.px(2)) }))
+    local back = UI.tap(UI.pad(HorizontalGroup:new{
+        align = "center",
+        arrow,
+        UI.hgap(UI.px(6)),
+        UI.text{ text = title, family = "serif_bold", size = 26, max_width = W - UI.px(100) },
+        UI.hgap(UI.px(24)),
+    }, { left = UI.px(16), top = UI.px(4), bottom = UI.px(12) }), function() self:closePage() end)
+    return VerticalGroup:new{
+        align = "left",
+        back,
+        UI.hline(W, UI.C.line, UI.px(1)),
+    }
+end
+
 function Shell:buildTree(W, H)
     local status_holder = FrameContainer:new{ bordersize = 0, padding = 0, self:statusWidget() }
+    local page_mod = self.page and pageModule(self.page.id)
+    if self.page and not page_mod then self.page = nil end
     local header = VerticalGroup:new{
         align = "left",
         status_holder,
-        self:tabsWidget(),
+        page_mod and self:pageHeader(page_mod.pageTitle(self, self.page.id)) or self:tabsWidget(),
     }
     local content_h = H - header:getSize().h
     local ok, content = pcall(function()
-        if self.tab == "library" then
+        if page_mod then
+            return page_mod.buildPage(self, self.page.id, W, content_h)
+        elseif self.tab == "library" then
             return Library.build(self, W, content_h)
         elseif self.tab == "stats" then
             return StatsPage.build(self, W, content_h)
@@ -356,7 +400,12 @@ end
 
 function Shell:onSuspend()
     self:unscheduleClock()
-    if self.tab == "tools" then guard("tools suspend", Tools.suspend, self) end
+    if self.page then
+        local mod = pageModule(self.page.id)
+        if mod and mod.suspendPage then guard("page suspend", mod.suspendPage, self, self.page.id) end
+    elseif self.tab == "tools" then
+        guard("tools suspend", Tools.suspend, self)
+    end
 end
 
 function Shell:onNetworkConnected() if self.shown then self:refresh("ui") end end
@@ -372,6 +421,11 @@ end
 
 -- What was new on the view being left (stamps, badges) counts as seen now.
 function Shell:leaveView()
+    if self.page then
+        local mod = pageModule(self.page.id)
+        if mod and mod.leavePage then guard("page leave", mod.leavePage, self, self.page.id) end
+        return
+    end
     if self.tab == "stats" then
         guard("stats leave", StatsPage.leave, self)
     elseif self.tab == "tools" then
@@ -380,7 +434,31 @@ function Shell:leaveView()
     end
 end
 
+-- A page over the current tab; «‹» brings the tab back as it was.
+function Shell:openPage(id, opts)
+    if self.page then self:leaveView() end
+    self.page = { id = id, opts = opts or {} }
+    self:refresh("ui")
+end
+
+function Shell:closePage()
+    if not self.page then return end
+    self:leaveView()
+    local back = self.page.opts and self.page.opts.back
+    self.page = nil
+    if back then
+        self:openPage(back)
+        return
+    end
+    self:refresh("ui")
+end
+
 function Shell:switchTab(id)
+    if self.page then
+        self:leaveView()
+        self.page = nil
+        if self.tab == id then return self:refresh("ui") end
+    end
     if id == "tools" and self.tab == "tools" and self.tools_view then
         return self:closeTool() -- the active tab again: back to the list of tools
     end
@@ -437,6 +515,7 @@ end
 
 function Shell:_swipe(ges)
     local dir = ges and ges.direction
+    if self.page then return true end -- a page has no neighbours
     if self.tab == "library" then
         if dir == "west" then return Library.turn(self, 1) end
         if dir == "east" then return Library.turn(self, -1) end
@@ -544,8 +623,12 @@ end
 
 function Shell:exitKOReader(restart)
     self:close()
+    if restart then
+        -- with the splash on screen, not the frozen file browser
+        return require("polka_quiet").restart()
+    end
     UIManager:nextTick(function()
-        UIManager:broadcastEvent(Event:new(restart and "Restart" or "Exit"))
+        UIManager:broadcastEvent(Event:new("Exit"))
     end)
 end
 

@@ -116,6 +116,99 @@ function painters.chev_left(bb, x, y, s, c, t)
     line(bb, tip, y + math.floor(s / 2), back, bottom, t + 1, c)
 end
 
+function painters.chev_right(bb, x, y, s, c, t)
+    local tip, top, bottom = x + math.floor(s * 0.66), y + math.floor(s * 0.24), y + math.floor(s * 0.76)
+    local back = x + math.floor(s * 0.4)
+    line(bb, back, top, tip, y + math.floor(s / 2), t, c)
+    line(bb, tip, y + math.floor(s / 2), back, bottom, t, c)
+end
+
+-- A tick: "Подключено".
+function painters.check(bb, x, y, s, c, t)
+    local x1, y1 = x + math.floor(s * 0.2), y + math.floor(s * 0.52)
+    local x2, y2 = x + math.floor(s * 0.4), y + math.floor(s * 0.72)
+    local x3, y3 = x + math.floor(s * 0.8), y + math.floor(s * 0.3)
+    line(bb, x1, y1, x2, y2, t + 1, c)
+    line(bb, x2, y2, x3, y3, t + 1, c)
+end
+
+-- Arcs of a circle centred at (cx, cy): pixels within the stroke and
+-- between the angles a0..a1 (radians, 0 = east, counter-clockwise; the
+-- screen's y grows downwards). Small icons only: it visits every pixel.
+local function arc(bb, cx, cy, r, t, a0, a1, c)
+    local half = t / 2
+    local lo, hi = math.floor(cx - r - t), math.ceil(cx + r + t)
+    for py = math.floor(cy - r - t), math.ceil(cy + r + t) do
+        for px = lo, hi do
+            local dx, dy = px + 0.5 - cx, cy - (py + 0.5)
+            local d = math.sqrt(dx * dx + dy * dy)
+            if math.abs(d - r) <= half then
+                local a = math.atan2(dy, dx)
+                if a >= a0 and a <= a1 then bb:paintRect(px, py, 1, 1, c) end
+            end
+        end
+    end
+end
+
+-- Wi‑Fi: three arcs and a dot.
+function painters.wifi(bb, x, y, s, c, t)
+    local cx, cy = x + s / 2, y + s * 0.8
+    local a0, a1 = math.rad(45), math.rad(135)
+    for i, f in ipairs({ 0.62, 0.43, 0.24 }) do
+        arc(bb, cx, cy, s * f, t + (i == 1 and 0 or 0), a0, a1, c)
+    end
+    bb:paintCircle(math.floor(cx), math.floor(cy), math.max(2, math.floor(s * 0.07)), c)
+end
+
+-- Polka's sign: books on a shelf, the last one leaning (148 × 112 units).
+function painters.shelf(bb, x, y, s, c, t, o)
+    local h = o.height or math.floor(s * 112 / 148)
+    local k = s / 148
+    local function px(v) return x + math.floor(v * k + 0.5) end
+    local function py(v) return y + math.floor(v * h / 112 + 0.5) end
+    -- the line runs along the outline, half outside it (as an SVG stroke does)
+    local half = math.floor(t / 2)
+    local function rect(rx, ry, rw, rh)
+        bb:paintBorder(px(rx) - half, py(ry) - half, px(rx + rw) - px(rx) + t, py(ry + rh) - py(ry) + t, t, c)
+    end
+    local function rule(x1, y1, x2)
+        bb:paintRect(px(x1), py(y1) - math.floor(t / 2), px(x2) - px(x1), t, c)
+    end
+    rect(14, 22, 22, 80)
+    if not o.plain then
+        rule(14, 36, 36)
+        rule(14, 88, 36)
+    end
+    rect(40, 10, 18, 92)
+    if not o.plain then rule(40, 26, 58) end
+    rect(62, 30, 26, 72)
+    if not o.plain then
+        rule(62, 44, 88)
+        rule(62, 90, 88)
+    end
+    -- the leaning book: a rectangle turned 14° around (107, 104)
+    local ang = math.rad(14)
+    local ca, sa = math.cos(ang), math.sin(ang)
+    local function rot(ux, uy)
+        local dx, dy = ux - 107, uy - 104
+        return px(107 + dx * ca - dy * sa), py(104 + dx * sa + dy * ca)
+    end
+    local corners = { { 98, 24 }, { 116, 24 }, { 116, 104 }, { 98, 104 } }
+    for i = 1, 4 do
+        local a, b = corners[i], corners[i % 4 + 1]
+        local ax, ay = rot(a[1], a[2])
+        local bx, by = rot(b[1], b[2])
+        line(bb, ax, ay, bx, by, t, c)
+    end
+    -- the shelf, with round ends
+    local base = math.max(t + 1, math.floor(t * 1.4 + 0.5))
+    local r = math.floor(base / 2)
+    local sy = py(104) - r
+    bb:paintRect(px(4), sy, px(144) - px(4), base, c)
+    bb:paintCircle(px(4), sy + r, r, c)
+    bb:paintCircle(px(144), sy + r, r, c)
+end
+
 -- "To the start / end of the chapter": a bar and a chevron.
 function painters.first(bb, x, y, s, c, t)
     local top, bottom, mid = y + math.floor(s * 0.22), y + math.floor(s * 0.78), y + math.floor(s / 2)
@@ -178,16 +271,21 @@ function painters.ragged(bb, x, y, s, c, t) align(bb, x, y, s, c, t, { 1, 0.7, 0
 --- A square icon widget.
 -- @tparam string name icon name (see painters above)
 -- @tparam int size side in pixels
--- @tparam[opt] table o { color = ink, paper = background color behind the icon }
+-- @tparam[opt] table o { color = ink, paper = background color behind the icon,
+--   stroke = line width, height = for icons that are not square (the shelf),
+--   plain = the shelf without the bands on the spines }
 function Icons.widget(name, size, o)
     o = o or {}
     local color = o.color or UI.C.ink
     local paper = o.paper or UI.C.paper
     local painter = painters[name]
     local t = o.stroke or stroke(size)
-    return UI.canvas(size, size, function(bb, x, y)
-        if painter then painter(bb, x, y, size, color, t, { paper = paper }) end
+    local h = o.height or size
+    return UI.canvas(size, h, function(bb, x, y)
+        if painter then painter(bb, x, y, size, color, t, { paper = paper, height = o.height, plain = o.plain }) end
     end)
 end
+
+Icons.stroke = stroke
 
 return Icons

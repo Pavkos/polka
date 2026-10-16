@@ -56,6 +56,7 @@ local FAMILIES = {
     serif_bold = { "Bookerly-Bold.ttf", "NotoSerif-Bold.ttf" },
     sans = { "Amazon-Ember-Regular.ttf", "NotoSans-Regular.ttf" },
     sans_bold = { "Amazon-Ember-Bold.ttf", "NotoSans-Bold.ttf" },
+    mono = { "DroidSansMono.ttf" }, -- addresses to type
 }
 -- A bold face comes from the same family as the regular one (or a later one).
 local BASE = { serif_bold = "serif", sans_bold = "sans" }
@@ -131,6 +132,23 @@ function UI.text(o)
         padding = o.padding or 0,
         bold = o.bold,
     }
+end
+
+-- One line in a line box of `lh` times its size (CSS line-height: 1.05 for the
+-- big code, 1.1 for the card's number), the spare split above and below.
+function UI.lineText(o, lh)
+    local t = UI.text(o)
+    local natural = t:getSize().h
+    local h = math.floor(UI.px(o.size or 18) * lh + 0.5)
+    t.forced_height = h
+    t.forced_baseline = t._baseline_h - math.floor((natural - h) / 2)
+    return t
+end
+
+-- Where a line's letters stand (from its top).
+function UI.baseline(t)
+    t:getSize()
+    return t.forced_baseline or t._baseline_h
 end
 
 -- A paragraph; max_lines caps the height and ends with an ellipsis.
@@ -236,6 +254,45 @@ function UI.pill(widget, o)
     }
 end
 
+-- Letters set apart, like a printed form ("К О Д", "Ч И Т А Т Е Л Ь С К И Й"),
+-- each letter its own glyph so the spacing is exact on any font.
+function UI.spaced(text, o)
+    o = o or {}
+    local size = o.size or 13
+    local gap = o.spacing or math.max(1, math.floor(UI.px(size) * 0.08))
+    local row = HorizontalGroup:new{ align = "center" }
+    local first = true
+    for ch in tostring(text):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        if not first then table.insert(row, HorizontalSpan:new{ width = gap }) end
+        if ch == " " then
+            table.insert(row, HorizontalSpan:new{ width = math.floor(UI.px(size) * 0.3) })
+        else
+            table.insert(row, UI.text{ text = ch, size = size, family = o.family or "sans_bold", color = o.color or UI.C.ink })
+        end
+        first = false
+    end
+    return row
+end
+
+-- A round-ended outlined button ("Подключить", "Новый код"), 42 units high.
+function UI.pillButton(text, callback, o)
+    o = o or {}
+    local h = UI.px(o.height or 42)
+    local border = math.max(2, UI.px(2))
+    local label = UI.text{ text = text, size = o.size or 15, family = "sans_bold",
+                           color = o.filled and UI.C.paper or UI.C.ink }
+    local w = label:getSize().w + 2 * UI.px(o.hpad or 18) + 2 * border
+    local frame = FrameContainer:new{
+        bordersize = border, color = UI.C.ink,
+        background = o.filled and UI.C.ink or UI.C.paper,
+        radius = o.radius or math.floor(h / 2), padding = 0, margin = 0,
+        width = w, height = h,
+        CenterContainer:new{ dimen = Geom:new{ w = w - 2 * border, h = h - 2 * border }, label },
+    }
+    if not callback then return frame end
+    return UI.tap(frame, callback)
+end
+
 -- Interaction -------------------------------------------------------------
 
 -- Wraps any widget and makes the whole area tappable (and long-pressable).
@@ -261,22 +318,28 @@ function UI.safely(fn, ...)
         local InfoMessage = require("ui/widget/infomessage")
         local UIManager = require("ui/uimanager")
         UIManager:show(InfoMessage:new{
-            text = "Что-то пошло не так. Подробности — в crash.log KOReader.\n\n" .. tostring(err):match("^[^\n]*"),
+            text = "Что-то пошло не так. Подробности — в crash.log.\n\n" .. tostring(err):match("^[^\n]*"),
             timeout = 6,
         })
     end
     return ok
 end
 
-function Tap:onTapPolka()
-    if self.callback then
+-- A tap area inside another one (the round «sync now» on a row) also hears
+-- the outer one's event on its way down: it answers only to its own taps.
+local function mine(self, ges)
+    return not (ges and ges.pos and self.dimen and self.dimen.x) or ges.pos:intersectWith(self.dimen)
+end
+
+function Tap:onTapPolka(_, ges)
+    if self.callback and mine(self, ges) then
         UI.safely(self.callback)
         return true
     end
 end
 
-function Tap:onHoldPolka()
-    if self.hold_callback then
+function Tap:onHoldPolka(_, ges)
+    if self.hold_callback and mine(self, ges) then
         UI.safely(self.hold_callback)
         return true
     end
