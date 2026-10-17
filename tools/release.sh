@@ -13,11 +13,14 @@ VERSION=$(sed -n 's/^ *version = "\([0-9.]*\)".*/\1/p' polka.koplugin/_meta.lua)
 [ ! -e polka.koplugin/polka_web_config.lua ] || { echo "polka_web_config.lua is in the folder: it holds a private key, remove it first"; exit 1; }
 rm -rf dist && mkdir -p dist
 ZIP="dist/polka-$VERSION.zip"
-# a reproducible zip: sorted names, fixed times, no extra attributes
-TZ=UTC find polka.koplugin -type f ! -name '.*' ! -name '*.orig' | LC_ALL=C sort > dist/files.txt
-TZ=UTC touch -t 202601010000 $(cat dist/files.txt)
-zip -q -X -D "$ZIP" -@ < dist/files.txt
-rm dist/files.txt
+# a reproducible zip: sorted names, fixed times, no extra attributes — made from a copy, so
+# the working tree keeps its own file times (git trusts them to see changes)
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+find polka.koplugin -type f ! -name '.*' ! -name '*.orig' | LC_ALL=C sort > "$TMP/files.txt"
+while read -r f; do mkdir -p "$TMP/$(dirname "$f")" && cp "$f" "$TMP/$f"; done < "$TMP/files.txt"
+(cd "$TMP" && TZ=UTC touch -t 202601010000 $(cat files.txt) && zip -q -X -D zip.zip -@ < files.txt)
+mv "$TMP/zip.zip" "$ZIP"
 SHA=$(sha256sum "$ZIP" | cut -d' ' -f1)
 SIZE=$(wc -c < "$ZIP" | tr -d ' ')
 python3 - "$VERSION" "$SHA" "$SIZE" "$KO_MIN" > dist/latest.json <<'PY'

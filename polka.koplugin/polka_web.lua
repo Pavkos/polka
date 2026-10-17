@@ -33,7 +33,7 @@ local Net = require("polka_net")
 local Sync = require("polka_websync")
 
 local Web = {
-    VERSION = "1.7.0",
+    VERSION = "1.8.0",
     SERVER = "https://polka.ikorkod.workers.dev",
     cfg = nil,          -- { url, token } while connected
     pid = nil,          -- the sync running now

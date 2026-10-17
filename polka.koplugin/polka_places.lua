@@ -6,7 +6,7 @@ When a book is closed after reading, Polka notes where the reader stopped,
 in forms both kinds of readers understand: percent, the EPUB spine item
 (0-based) and how far into it (frac), and KOReader's own xpointer. The next
 sync sends these and brings back the places the card's other readers
-(another Kindle, an Xteink) reached since. When a book is opened and another
+(another Kindle, an Xteink, the iPhone app) reached since. When a book is opened and another
 reader got further in it later than this Kindle did, a small sheet offers to
 go there: «Продолжить с места на Xteink?» — «Перейти» / «Остаться».
 
@@ -220,6 +220,7 @@ end
 
 local function readerName(kind)
     if kind == "xteink" then return "Xteink" end
+    if kind == "iphone" then return "iPhone" end
     if kind == "kindle" then return "другом Kindle" end
     return "другой читалке"
 end
